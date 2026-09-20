@@ -1,0 +1,21 @@
+# 牛马工作台 .gitignore
+
+# 本地运行数据（勿提交）
+data/
+weekly/
+config.json
+*.log
+
+# 二进制与依赖
+*.exe
+personal-workbench/node_modules/
+personal-workbench/src-tauri/target/
+**/target/
+**/node_modules/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

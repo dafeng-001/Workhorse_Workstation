@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>今日工作</title>
+  <link rel="stylesheet" href="widget.css" />
+</head>
+<body class="mode-slim">
+  <div id="widget" class="widget">
+    <div class="card">
+      <header class="head">
+        <div class="drag" id="drag" title="拖拽移动 · 双击展开/收起">
+          <span class="logo">W</span>
+          <div class="head-text">
+            <span class="title">今日工作</span>
+            <span class="meta" id="updated">—</span>
+          </div>
+        </div>
+        <div class="acts">
+          <button id="btn-toggle" title="展开/收起">⤢</button>
+          <button id="btn-open" title="打开工作台">窗</button>
+          <button id="btn-refresh" title="刷新">↻</button>
+          <button id="btn-hide" title="隐藏">×</button>
+        </div>
+      </header>
+
+      <div class="slim-row">
+        <span class="pill add" id="s-code">+0 −0</span>
+        <span class="pill" id="s-commit">0 次</span>
+        <span class="pill" id="s-files">0 文件</span>
+        <span class="pill health" id="s-health">—</span>
+      </div>
+
+      <div class="detail" id="detail">
+        <div class="grid">
+          <div class="cell">
+            <span class="l">在线</span>
+            <strong class="v" id="c-online">0m</strong>
+            <span class="s" id="c-streak">连续 —</span>
+          </div>
+          <div class="cell">
+            <span class="l">未提交</span>
+            <strong class="v" id="c-dirty">0</strong>
+            <span class="s">脏文件</span>
+          </div>
+          <div class="cell">
+            <span class="l">键盘</span>
+            <strong class="v" id="c-keys">0</strong>
+            <span class="s" id="c-locks">锁屏 0</span>
+          </div>
+          <div class="cell">
+            <span class="l">本周代码</span>
+            <strong class="v" id="c-week">+0</strong>
+            <span class="s" id="c-weekc">提交 0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="widget.js"></script>
+</body>
+</html>

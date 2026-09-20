@@ -1,0 +1,71 @@
+{
+  "_说明": "牛马工作台配置示例。正式运行请用 exe 同目录 config.json。字段按范围归类，界面设置页已收敛为：开发 / 办公 / 健康 / 系统。",
+
+  "开发": {
+    "repos": [],
+    "auto_scan": true,
+    "scan_roots": [],
+    "scan_max_depth": 4,
+    "scan_max_repos": 40,
+    "authored_emails": [],
+    "count_exts": ["sql", "go", "rs", "js", "py", "md"],
+    "weekly_repos": []
+  },
+
+  "办公": {
+    "exclude_dirs": []
+  },
+
+  "健康": {
+    "idle_threshold_minutes": 5,
+    "activity_poll_seconds": 60,
+    "daily_reminder": true,
+    "remind_hour": 18,
+    "dirty_warn_threshold": 20,
+    "llm_api_base": "",
+    "llm_api_key": "",
+    "llm_model": "gpt-4o-mini"
+  },
+
+  "系统": {
+    "widget_enabled": true,
+    "show_window_on_launch": true,
+    "log_enabled": false,
+    "weekly_dir": "weekly",
+    "data_dir": "data"
+  },
+
+  "_运行时勿手改": {
+    "widget_collapsed": false,
+    "widget_mode": "files",
+    "widget_x": null,
+    "widget_y": null
+  },
+
+  "repos": [],
+  "auto_scan": true,
+  "scan_roots": [],
+  "scan_max_depth": 4,
+  "scan_max_repos": 40,
+  "idle_threshold_minutes": 5,
+  "activity_poll_seconds": 60,
+  "weekly_dir": "weekly",
+  "data_dir": "data",
+  "widget_enabled": true,
+  "widget_collapsed": false,
+  "widget_mode": "files",
+  "widget_x": null,
+  "widget_y": null,
+  "daily_reminder": true,
+  "remind_hour": 18,
+  "dirty_warn_threshold": 20,
+  "weekly_repos": [],
+  "llm_api_base": "",
+  "llm_api_key": "",
+  "llm_model": "gpt-4o-mini",
+  "log_enabled": false,
+  "show_window_on_launch": true,
+  "authored_emails": [],
+  "exclude_dirs": [],
+  "count_exts": []
+}

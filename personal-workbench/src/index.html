@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>牛马工作台</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="boot-overlay" class="boot-overlay hidden" aria-live="polite">
+    <div class="boot-card">
+      <div class="spinner"></div>
+      <p class="boot-title">正在准备数据</p>
+      <p class="boot-sub">读取本地 git 与文件记录…</p>
+    </div>
+  </div>
+
+  <div class="shell">
+    <header class="top">
+      <div class="brand">
+        <span class="mark"></span>
+        <div>
+          <h1>牛马工作台</h1>
+          <p id="generated-at" class="meta">—</p>
+        </div>
+      </div>
+
+      <nav class="mode-switch" role="tablist" aria-label="工作区">
+        <button type="button" class="mode-btn active" data-mode="overview">总览</button>
+        <button type="button" class="mode-btn" data-mode="code">开发</button>
+        <button type="button" class="mode-btn" data-mode="files">办公</button>
+        <button type="button" class="mode-btn" data-mode="rhythm">健康</button>
+        <button type="button" class="mode-btn" data-mode="work">摸鱼</button>
+      </nav>
+
+      <div class="actions">
+        <button id="btn-refresh" class="btn">刷新</button>
+        <button id="btn-weekly" class="btn">周报草稿</button>
+        <button id="btn-config" class="btn ghost">配置</button>
+      </div>
+    </header>
+
+    <!-- ============ 总览 ============ -->
+    <section id="view-overview" class="view active">
+      <div class="kpis k6">
+        <article class="kpi">
+          <span class="kpi-label">今日修改量</span>
+          <strong class="kpi-value sm" id="m-today">—</strong>
+          <span class="kpi-sub" id="m-today-commit">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">本周修改量</span>
+          <strong class="kpi-value sm" id="m-week">—</strong>
+          <span class="kpi-sub" id="m-week-commit">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">未提交</span>
+          <strong class="kpi-value" id="m-dirty">—</strong>
+          <span class="kpi-sub" id="m-dirty-delta">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">今日文件</span>
+          <strong class="kpi-value" id="f-today-m">—</strong>
+          <span class="kpi-sub" id="f-today-c">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">在线 / 连续</span>
+          <strong class="kpi-value sm" id="m-online">—</strong>
+          <span class="kpi-sub" id="d-streak">—</span>
+        </article>
+        <article class="kpi accent">
+          <span class="kpi-label">健康分</span>
+          <strong class="kpi-value" id="h-score">—</strong>
+          <span class="kpi-sub" id="h-level">—</span>
+        </article>
+      </div>
+
+      <div class="grid-2">
+        <section class="panel">
+          <header class="panel-head">
+            <h2>近 7 天代码量</h2>
+            <span class="hint" id="trend-hint"></span>
+          </header>
+          <div id="trend-bars" class="trend-row"></div>
+        </section>
+        <section class="panel">
+          <header class="panel-head"><h2>本周在线</h2></header>
+          <div id="week-bars" class="bars compact"></div>
+        </section>
+      </div>
+
+      <div class="grid-2">
+        <section class="panel">
+          <header class="panel-head">
+            <h2>今日节奏</h2>
+            <span class="hint" id="f-rhythm-label"></span>
+          </header>
+          <div class="focus-grid">
+            <div class="focus-col">
+              <div class="focus-item">
+                <span class="dl">键盘</span>
+                <strong class="dv" id="d-keys">—</strong>
+              </div>
+              <div class="focus-item">
+                <span class="dl">锁屏</span>
+                <strong class="dv" id="d-locks">—</strong>
+              </div>
+              <div class="focus-item">
+                <span class="dl">鼠标</span>
+                <strong class="dv" id="f-mouse">—</strong>
+              </div>
+              <div class="focus-item">
+                <span class="dl">专注/碎片</span>
+                <strong class="dv" id="f-rhythm">—</strong>
+              </div>
+            </div>
+            <div class="focus-apps">
+              <div class="dl">前台应用</div>
+              <div id="f-apps" class="app-list"></div>
+            </div>
+          </div>
+        </section>
+        <section class="panel">
+          <header class="panel-head">
+            <h2>健康提示</h2>
+            <div class="row-actions">
+              <button type="button" id="btn-health" class="btn sm">本地</button>
+              <button type="button" id="btn-health-llm" class="btn sm primary">AI</button>
+            </div>
+          </header>
+          <ul id="h-tips" class="health-tips"></ul>
+          <p class="hint path" id="h-source"></p>
+        </section>
+      </div>
+    </section>
+
+    <!-- ============ 开发范围 ============ -->
+    <section id="view-code" class="view">
+      <div class="kpis">
+        <article class="kpi">
+          <span class="kpi-label">未提交文件</span>
+          <strong class="kpi-value" id="m-dirty-c">—</strong>
+          <span class="kpi-sub" id="m-dirty-delta-c">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">今日修改量</span>
+          <strong class="kpi-value sm" id="m-today-c">—</strong>
+          <span class="kpi-sub" id="m-today-commit-c">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">本周修改量</span>
+          <strong class="kpi-value sm" id="m-week-c">—</strong>
+          <span class="kpi-sub" id="m-week-commit-c">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">活跃仓库</span>
+          <strong class="kpi-value" id="dev-active-repos">—</strong>
+          <span class="kpi-sub" id="dev-dirty-repos">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">周报</span>
+          <strong class="kpi-value small" id="m-weekly">—</strong>
+          <span class="kpi-sub" id="m-weekly-path">—</span>
+        </article>
+      </div>
+
+      <div class="dev-grid">
+        <section class="panel grow">
+          <header class="panel-head">
+            <h2>仓库热力与分支</h2>
+            <span id="repo-count" class="hint"></span>
+          </header>
+          <div class="table-wrap">
+            <table class="dev-table">
+              <thead>
+                <tr>
+                  <th>仓库</th>
+                  <th class="num">热力</th>
+                  <th class="num">今 ±行</th>
+                  <th class="num">周 ±行</th>
+                  <th class="num">未提交</th>
+                  <th>分支</th>
+                </tr>
+              </thead>
+              <tbody id="repo-body">
+                <tr><td colspan="6" class="empty">加载中…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head">
+            <h2>语言 / 扩展名占比</h2>
+            <span class="hint">本周 · 过滤后</span>
+          </header>
+          <div id="dev-ext-mix" class="ext-mix"></div>
+        </section>
+
+        <section class="panel grow">
+          <header class="panel-head">
+            <h2>未完成清单</h2>
+            <span class="hint" id="dev-dirty-hint">按仓库折叠</span>
+          </header>
+          <div id="dev-dirty-list" class="dirty-list"></div>
+        </section>
+
+        <aside class="stack">
+          <section class="panel grow">
+            <header class="panel-head">
+              <h2>周报 · 按配置范围出稿</h2>
+              <div class="row-actions">
+                <button type="button" id="btn-weekly-draft" class="btn sm">草稿</button>
+                <button type="button" id="btn-polish" class="btn primary sm">润色</button>
+                <button type="button" id="btn-copy-weekly" class="btn sm">复制</button>
+                <button type="button" id="btn-export-weekly" class="btn sm ghost">导出</button>
+              </div>
+            </header>
+            <div class="weekly-history-row">
+              <label class="hint" for="weekly-history">历史</label>
+              <select id="weekly-history" class="select"></select>
+            </div>
+            <pre id="weekly-preview" class="preview">尚未生成。点「草稿」或「润色」按 开发/办公/健康 出稿</pre>
+          </section>
+        </aside>
+      </div>
+      <p class="hint" id="dev-note" style="margin-top:8px"></p>
+    </section>
+
+    <!-- ============ 办公范围 ============ -->
+    <section id="view-files" class="view">
+      <div class="kpis">
+        <article class="kpi">
+          <span class="kpi-label">今日办公文档</span>
+          <strong class="kpi-value" id="office-today">—</strong>
+          <span class="kpi-sub" id="f-today-c2">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">本周办公文档</span>
+          <strong class="kpi-value" id="office-week">—</strong>
+          <span class="kpi-sub" id="office-week-sub">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">本月办公文档</span>
+          <strong class="kpi-value" id="office-month">—</strong>
+          <span class="kpi-sub" id="f-month-c">创建量见明细</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">本周专注目录</span>
+          <strong class="kpi-value small" id="office-focus">—</strong>
+          <span class="kpi-sub" id="file-source">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">全量文件修改</span>
+          <strong class="kpi-value sm" id="f-today-m2">—</strong>
+          <span class="kpi-sub" id="f-week-m">—</span>
+        </article>
+      </div>
+
+      <div class="office-grid">
+        <section class="panel grow">
+          <header class="panel-head">
+            <h2>最近办公文档</h2>
+            <span class="hint">近 7 天修改 · 不读正文</span>
+          </header>
+          <div id="office-docs" class="doc-list"></div>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head">
+            <h2>办公类型 · 本月</h2>
+            <span class="hint">Word / Excel / PPT…</span>
+          </header>
+          <div id="office-kinds" class="ext-mix"></div>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head">
+            <h2>近 7 天办公产出</h2>
+            <span class="hint">修改 / 新建</span>
+          </header>
+          <div id="office-days" class="bars compact"></div>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head">
+            <h2>办公目录专注</h2>
+            <span class="hint">本周文档所在目录</span>
+          </header>
+          <div id="office-dirs" class="dir-list"></div>
+          <p class="hint" id="office-note" style="margin-top:8px"></p>
+        </section>
+
+        <section class="panel grow">
+          <header class="panel-head">
+            <h2>类型分布 · 本月（全量）</h2>
+            <div class="seg" role="tablist">
+              <button type="button" class="seg-btn active" data-kind="office">办公文档</button>
+              <button type="button" class="seg-btn" data-kind="code">代码</button>
+              <button type="button" class="seg-btn" data-kind="other">其他</button>
+            </div>
+          </header>
+          <div class="type-grid">
+            <div class="type-summary" id="type-summary"></div>
+            <div class="type-list" id="type-list"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head"><h2>主要目录（全量）</h2></header>
+          <div id="file-dirs" class="dir-list"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ============ 健康范围 ============ -->
+    <section id="view-rhythm" class="view">
+      <div class="kpis">
+        <article class="kpi accent">
+          <span class="kpi-label">健康分</span>
+          <strong class="kpi-value" id="h-today-score">—</strong>
+          <span class="kpi-sub" id="h-today-level">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">在线 / 工作</span>
+          <strong class="kpi-value sm" id="h-online">—</strong>
+          <span class="kpi-sub" id="h-work">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">连续工作 / 久坐</span>
+          <strong class="kpi-value sm" id="h-streak">—</strong>
+          <span class="kpi-sub" id="h-sit">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">键盘 · 碎片</span>
+          <strong class="kpi-value sm" id="h-keys">—</strong>
+          <span class="kpi-sub" id="h-frag">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">锁屏 / 通讯占比</span>
+          <strong class="kpi-value sm" id="h-locks">—</strong>
+          <span class="kpi-sub" id="h-im">—</span>
+        </article>
+      </div>
+
+      <div class="health-grid">
+        <section class="panel grow">
+          <header class="panel-head">
+            <h2>久坐与节奏</h2>
+            <span class="hint" id="h-sit-msg">—</span>
+          </header>
+          <div class="health-cards">
+            <div class="health-card" id="h-sit-card">
+              <div class="hc-label">久坐状态</div>
+              <div class="hc-value" id="h-sit-state">—</div>
+              <div class="hc-sub" id="h-sit-sub">—</div>
+            </div>
+            <div class="health-card">
+              <div class="hc-label">专注 / 碎片</div>
+              <div class="hc-value" id="h-focus">—</div>
+              <div class="hc-sub" id="h-rhythm">—</div>
+            </div>
+            <div class="health-card">
+              <div class="hc-label">鼠标距离</div>
+              <div class="hc-value" id="h-mouse">—</div>
+              <div class="hc-sub">今日累计</div>
+            </div>
+          </div>
+          <div id="h-week-hours" class="bars compact" style="margin-top:12px"></div>
+          <p class="hint" style="margin-top:6px">柱=近 7 天在线/工作时长</p>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head">
+            <h2>健康分趋势</h2>
+            <span class="hint">近 7 天</span>
+          </header>
+          <div id="h-score-trend" class="bars compact"></div>
+        </section>
+
+        <section class="panel grow">
+          <header class="panel-head">
+            <h2>前台应用占比</h2>
+            <span class="hint" id="r-apps-hint">今日</span>
+          </header>
+          <div id="r-apps" class="app-list tall"></div>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head">
+            <h2>输入节奏</h2>
+            <span class="hint" id="f-rhythm-label-2"></span>
+          </header>
+          <div class="rhythm-detail">
+            <div class="focus-item"><span class="dl">专注块</span><strong class="dv" id="r-focus">—</strong></div>
+            <div class="focus-item"><span class="dl">碎片打断</span><strong class="dv" id="r-frag">—</strong></div>
+            <div class="focus-item"><span class="dl">节奏评分</span><strong class="dv" id="r-score">—</strong></div>
+            <div class="focus-item"><span class="dl">空闲中断</span><strong class="dv" id="r-gaps">—</strong></div>
+          </div>
+        </section>
+
+        <section class="panel grow">
+          <header class="panel-head">
+            <h2>健康提示</h2>
+            <div class="row-actions">
+              <button type="button" id="btn-health" class="btn sm">本地</button>
+              <button type="button" id="btn-health-llm-2" class="btn sm primary">AI</button>
+            </div>
+          </header>
+          <div class="health-score inline">
+            <strong id="h-score-2">—</strong>
+            <span id="h-level-2" class="hint"></span>
+          </div>
+          <ul id="h-tips-2" class="health-tips"></ul>
+          <p class="hint" id="h-note" style="margin-top:8px"></p>
+        </section>
+      </div>
+    </section>
+
+    <!-- ============ 摸鱼：仅可量化指标 ============ -->
+    <section id="view-work" class="view slack-page">
+      <div class="kpis slack-kpis">
+        <article class="kpi accent">
+          <span class="kpi-label">8h 未工作比例</span>
+          <strong class="kpi-value" id="slack-not-ratio">—</strong>
+          <span class="kpi-sub" id="slack-tip">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">有效工作</span>
+          <strong class="kpi-value sm" id="slack-work">—</strong>
+          <span class="kpi-sub" id="slack-work-sub">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">摸鱼合计</span>
+          <strong class="kpi-value sm" id="slack-apps">—</strong>
+          <span class="kpi-sub" id="slack-online">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">听歌</span>
+          <strong class="kpi-value sm" id="slack-music">—</strong>
+          <span class="kpi-sub" id="slack-music-sub">—</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">公众号阅读</span>
+          <strong class="kpi-value sm" id="wx-mp-read">—</strong>
+          <span class="kpi-sub" id="wx-mp-read-sub">粗估</span>
+        </article>
+        <article class="kpi">
+          <span class="kpi-label">微信前台</span>
+          <strong class="kpi-value sm" id="wx-mp-fg">—</strong>
+          <span class="kpi-sub" id="wx-mp-ratio">—</span>
+        </article>
+      </div>
+
+      <div class="slack-grid">
+        <section class="panel">
+          <header class="panel-head">
+            <h2>摸鱼时间构成</h2>
+            <span class="hint" id="slack-count">—</span>
+          </header>
+          <div id="slack-breakdown" class="slack-break"></div>
+          <p class="hint" id="slack-note" style="margin-top:8px"></p>
+        </section>
+        <section class="panel grow">
+          <header class="panel-head">
+            <h2>非工作应用 · 前台时长</h2>
+            <span class="hint">按今日</span>
+          </header>
+          <div id="slack-apps-list" class="app-list tall"></div>
+        </section>
+      </div>
+    </section>
+  </div>
+
+  <dialog id="config-dialog">
+    <form method="dialog" id="config-form" class="config-form cfg-tabs">
+      <aside class="cfg-nav">
+        <h2>设置</h2>
+        <p class="cfg-nav-desc">按工作范围归类，减少翻页</p>
+        <button type="button" class="cfg-tab active" data-pane="dev">开发</button>
+        <button type="button" class="cfg-tab" data-pane="office">办公</button>
+        <button type="button" class="cfg-tab" data-pane="health">健康</button>
+        <button type="button" class="cfg-tab" data-pane="system">系统</button>
+        <div class="cfg-nav-foot">
+          <button value="cancel" class="btn ghost" type="submit">关闭</button>
+          <button id="cfg-save" value="default" class="btn primary">保存</button>
+        </div>
+      </aside>
+      <div class="cfg-panes">
+        <!-- ========== 开发 ========== -->
+        <section class="cfg-pane active" data-pane="dev">
+          <h3>开发</h3>
+          <p class="hint">仓库扫描、作者身份、代码行数口径、周报计入范围。</p>
+
+          <div class="cfg-block">
+            <h4>仓库扫描</h4>
+            <label class="check"><input type="checkbox" id="cfg-auto" checked /> 自动扫描本地 git 仓库</label>
+            <div class="row two">
+              <label>扫描深度 <input id="cfg-depth" type="number" min="1" max="8" /></label>
+              <label>最多仓库 <input id="cfg-max" type="number" min="1" max="200" /></label>
+            </div>
+            <label>扫描根目录 <textarea id="cfg-scan-roots" rows="2" placeholder="留空使用默认（Desktop/Documents/code 等）。例：D:\\work 或 %USERPROFILE%\\code"></textarea></label>
+            <label>手动补充仓库路径 <textarea id="cfg-repos" rows="2" placeholder="每行一个仓库根目录（含 .git）"></textarea></label>
+            <div class="cfg-inline"><button type="button" id="cfg-scan" class="btn">立即扫描仓库</button></div>
+            <p class="hint" id="cfg-scan-hint">默认不会扫全盘；只扫上述常见目录名。别人电脑上请改成对方的项目路径。</p>
+          </div>
+
+          <div class="cfg-block">
+            <h4>周报输出 · 开发</h4>
+            <label class="check"><input type="checkbox" id="cfg-weekly-dev" checked /> 开发范围写入周报（代码/仓库/未提交）</label>
+          </div>
+
+          <div class="cfg-block">
+            <h4>本人 Git 身份</h4>
+            <p class="hint">只统计勾选账号的提交。全不选 = 各仓库自己的 user.email。</p>
+            <div class="weekly-pick-head">
+              <button type="button" id="authors-all" class="btn sm">全选</button>
+              <button type="button" id="authors-none" class="btn sm">全不选</button>
+              <button type="button" id="authors-refresh" class="btn sm">重新扫描</button>
+            </div>
+            <div id="authors-pick" class="weekly-pick">扫描本机 Git 账号…</div>
+          </div>
+
+          <div class="cfg-block">
+            <h4>代码行数口径</h4>
+            <p class="hint">只统计下列扩展名的 ± 行；空 = 全部。提交次数不受影响。</p>
+            <div class="weekly-pick-head">
+              <button type="button" id="count-exts-preset" class="btn sm">常用源码</button>
+              <button type="button" id="count-exts-sql" class="btn sm">仅 SQL</button>
+              <button type="button" id="count-exts-clear" class="btn sm">清空</button>
+            </div>
+            <label style="margin-top:8px">扩展名（每行一个）
+              <textarea id="cfg-count-exts" rows="4" placeholder="sql&#10;go&#10;rs"></textarea>
+            </label>
+            <p class="hint" id="count-exts-hint"></p>
+          </div>
+
+          <div class="cfg-block">
+            <h4>周报计入仓库</h4>
+            <p class="hint">全选或全不选 = 不限制。</p>
+            <div class="weekly-pick-head">
+              <button type="button" id="weekly-all" class="btn sm">全选</button>
+              <button type="button" id="weekly-none" class="btn sm">全不选</button>
+            </div>
+            <div id="weekly-pick" class="weekly-pick">加载仓库列表…</div>
+          </div>
+        </section>
+
+        <!-- ========== 办公 ========== -->
+        <section class="cfg-pane" data-pane="office">
+          <h3>办公</h3>
+          <p class="hint">本地文件/目录活动相关；与开发扫描共用排除规则。</p>
+
+          <div class="cfg-block">
+            <h4>扫描排除</h4>
+            <p class="hint">仓库扫描与办公文件统计都会跳过含这些关键字的目录（在默认排除 node_modules、target 等之外）。</p>
+            <label>排除关键字（每行一个）
+              <textarea id="cfg-exclude" rows="3" placeholder="backup&#10;归档&#10;tmp"></textarea>
+            </label>
+          </div>
+
+          <div class="cfg-block">
+            <h4>说明</h4>
+            <p class="hint">办公页主要展示：今/周/月文件修改与创建、类型分布、主要目录。统计范围随扫描根目录与排除规则变化，无需在此重复配置路径。</p>
+            <label class="check"><input type="checkbox" id="cfg-weekly-office" checked /> 办公范围写入周报（文档量/目录/最近文件）</label>
+          </div>
+        </section>
+
+        <!-- ========== 健康 ========== -->
+        <section class="cfg-pane" data-pane="health">
+          <h3>健康</h3>
+          <p class="hint">在线采样、工作节奏提醒、健康建议模型。</p>
+
+          <div class="cfg-block">
+            <h4>在线采样</h4>
+            <div class="row two">
+              <label>空闲阈值（分钟） <input id="cfg-idle" type="number" min="1" max="120" /></label>
+              <label>采样间隔（秒） <input id="cfg-poll" type="number" min="15" max="600" /></label>
+            </div>
+            <label class="check"><input type="checkbox" id="cfg-weekly-health" checked /> 健康范围写入周报（在线/健康分/节奏）</label>
+          </div>
+
+          <div class="cfg-block">
+            <h4>提醒</h4>
+            <label class="check"><input type="checkbox" id="cfg-remind" checked /> 每日工作摘要（托盘）</label>
+            <div class="row two">
+              <label>提醒时间（小时） <input id="cfg-remind-h" type="number" min="0" max="23" /></label>
+              <label>未提交提醒阈值（个） <input id="cfg-dirty-warn" type="number" min="5" max="200" /></label>
+            </div>
+            <p class="hint">未提交提醒偏「开发」，为减少页签仍放在此处，与摘要提醒一并配置。</p>
+          </div>
+
+          <div class="cfg-block">
+            <h4>AI 健康建议</h4>
+            <div class="ai-card">
+              <div class="ai-card-head">
+                <span class="ai-badge">OpenAI 兼容</span>
+                <span id="ai-status" class="ai-pill">未配置</span>
+              </div>
+              <label class="field"><span>API Base</span>
+                <input id="cfg-llm-base" type="url" placeholder="https://api.openai.com/v1" />
+              </label>
+              <label class="field"><span>API Key</span>
+                <div class="key-row">
+                  <input id="cfg-llm-key" type="password" placeholder="sk-..." />
+                  <button type="button" id="btn-toggle-key" class="btn sm ghost">显示</button>
+                </div>
+              </label>
+              <label class="field"><span>模型</span>
+                <input id="cfg-llm-model" type="text" placeholder="gpt-4o-mini" />
+              </label>
+              <div class="ai-actions">
+                <button type="button" id="btn-test-llm" class="btn primary">测试连通性</button>
+                <span id="ai-test-result" class="ai-test-result"></span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ========== 系统 ========== -->
+        <section class="cfg-pane" data-pane="system">
+          <h3>系统</h3>
+          <p class="hint">挂件、开机自启、窗口行为、诊断日志。</p>
+
+          <div class="cfg-block">
+            <h4>桌面与启动</h4>
+            <label class="check"><input type="checkbox" id="cfg-widget" checked /> 显示桌面挂件</label>
+            <label class="check"><input type="checkbox" id="cfg-startup" /> 开机自启（静默进托盘）</label>
+            <label class="check"><input type="checkbox" id="cfg-show-window" checked /> 普通启动时打开主窗口</label>
+          </div>
+
+          <div class="cfg-block">
+            <h4>诊断</h4>
+            <label class="check"><input type="checkbox" id="cfg-log" /> 写入 data/app.log</label>
+            <div class="cfg-inline">
+              <button type="button" id="btn-open-log" class="btn">打开日志文件</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

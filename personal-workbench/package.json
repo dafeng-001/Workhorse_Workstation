@@ -1,0 +1,14 @@
+{
+  "name": "niu-ma-workbench",
+  "private": true,
+  "version": "0.2.0",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "icons": "tauri icon"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
