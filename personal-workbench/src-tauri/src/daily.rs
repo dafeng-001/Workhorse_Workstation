@@ -36,6 +36,8 @@ static LAST_INPUT_MS: AtomicU32 = AtomicU32::new(0);
 static IS_LOCKED: AtomicU32 = AtomicU32::new(0);
 static LOCKS_TODAY: AtomicU32 = AtomicU32::new(0);
 static UNLOCKS_TODAY: AtomicU32 = AtomicU32::new(0);
+/// 跨天清零：会话原子量按自然日复位，避免「今天刚开始却连续很久」
+static SESSION_DAY: Mutex<Option<String>> = Mutex::new(None);
 
 fn metrics_path() -> PathBuf {
     crate::config::app_root().join("data").join("daily_metrics.json")
@@ -62,14 +64,34 @@ fn save_log(log: &MetricsLog) {
     );
 }
 
-pub fn current() -> DailyMetrics {
+/// 自然日变更：会话原子量清零，避免把昨夜连续时长算进今天
+fn reset_session_if_new_day() {
+    let d = today();
+    let mut slot = SESSION_DAY.lock().unwrap();
+    if slot.as_deref() == Some(d.as_str()) {
+        return;
+    }
+    if slot.is_some() {
+        let cur = current_inner();
+        let mut log = load_log();
+        log.days.insert(cur.date.clone(), cur);
+        let _ = save_log(&log);
+    }
+    KEY_COUNT.store(0, Ordering::Relaxed);
+    CLICK_COUNT.store(0, Ordering::Relaxed);
+    STREAK_SECS.store(0, Ordering::Relaxed);
+    LOCKS_TODAY.store(0, Ordering::Relaxed);
+    UNLOCKS_TODAY.store(0, Ordering::Relaxed);
+    *slot = Some(d);
+}
+
+fn current_inner() -> DailyMetrics {
     let log = load_log();
     let d = today();
     let base = log.days.get(&d).cloned().unwrap_or_else(|| DailyMetrics {
         date: d.clone(),
         ..Default::default()
     });
-    // session counters are deltas since last persist
     let keys = base.keys.saturating_add(KEY_COUNT.load(Ordering::Relaxed));
     let clicks = base.clicks.saturating_add(CLICK_COUNT.load(Ordering::Relaxed));
     let locks = base.locks.max(LOCKS_TODAY.load(Ordering::Relaxed));
@@ -80,17 +102,23 @@ pub fn current() -> DailyMetrics {
     DailyMetrics {
         date: d,
         keys,
+        clicks,
         locks,
         unlocks,
         max_streak_seconds: streak,
         work_seconds: base.work_seconds,
-        clicks,
     }
+}
+
+pub fn current() -> DailyMetrics {
+    reset_session_if_new_day();
+    current_inner()
 }
 
 /// Fold session counters into disk, then clear session deltas.
 pub fn persist() {
-    let cur = current();
+    reset_session_if_new_day();
+    let cur = current_inner();
     let mut log = load_log();
     log.days.insert(cur.date.clone(), cur);
     if log.days.len() > 60 {
@@ -230,6 +258,7 @@ fn start_streak_tracker() {
         let mut prev_lock = false;
 
         loop {
+            reset_session_if_new_day();
             let idle = idle_seconds();
             let active = idle < idle_thresh && IS_LOCKED.load(Ordering::Relaxed) == 0;
 

@@ -11,6 +11,8 @@ static FOCUS_BLOCKS: AtomicU64 = AtomicU64::new(0);
 static FRAG_EVENTS: AtomicU64 = AtomicU64::new(0);
 static WECHAT_FG_S: AtomicU64 = AtomicU64::new(0);
 static WECHAT_MP_S: AtomicU64 = AtomicU64::new(0);
+/// 96 DPI：1px ≈ 0.264mm；px → km
+const PX_TO_KM: f64 = 0.000264 / 1_000_000.0;
 
 static KEY_TIMES: Mutex<Vec<i64>> = Mutex::new(Vec::new());
 static APP_TICKS: LazyMutex<HashMap<String, u64>> = LazyMutex::new();
@@ -63,6 +65,30 @@ fn metrics_path() -> std::path::PathBuf {
 
 fn today_str() -> String {
     chrono::Local::now().date_naive().to_string()
+}
+
+static FOCUS_SESSION_DAY: Mutex<Option<String>> = Mutex::new(None);
+
+/// 跨天清零 session 原子量（鼠标像素、微信时长等），避免「刚开始就很长」
+fn reset_session_if_new_day() {
+    let d = today_str();
+    let mut slot = FOCUS_SESSION_DAY.lock().unwrap();
+    if slot.as_deref() == Some(d.as_str()) {
+        return;
+    }
+    if slot.is_some() {
+        // 尽量先把旧日 fold 进磁盘再清
+        persist();
+    }
+    MOUSE_PX.store(0, Ordering::Relaxed);
+    IDLE_GAPS.store(0, Ordering::Relaxed);
+    FOCUS_BLOCKS.store(0, Ordering::Relaxed);
+    FRAG_EVENTS.store(0, Ordering::Relaxed);
+    WECHAT_FG_S.store(0, Ordering::Relaxed);
+    WECHAT_MP_S.store(0, Ordering::Relaxed);
+    KEY_TIMES.lock().unwrap().clear();
+    APP_TICKS.with(|m| m.clear());
+    *slot = Some(d);
 }
 
 fn load() -> HashMap<String, FocusDay> {
@@ -441,18 +467,36 @@ fn merge_app_seconds(base: &[AppUsage], session: &HashMap<String, u64>) -> Vec<(
 }
 
 pub fn current() -> FocusDay {
+    reset_session_if_new_day();
+    current_inner()
+}
+
+pub fn persist() {
+    reset_session_if_new_day();
+    let day = current_inner();
+    let mut map = load();
+    map.insert(day.date.clone(), day);
+    if map.len() > 60 {
+        let keys: Vec<String> = map.keys().cloned().collect();
+        for k in keys.into_iter().take(map.len() - 60) {
+            map.remove(&k);
+        }
+    }
+    save(&map);
+    APP_TICKS.with(|m| m.clear());
+}
+
+fn current_inner() -> FocusDay {
     let date = today_str();
     let map = load();
     let base = map.get(&date).cloned().unwrap_or_else(|| FocusDay {
         date: date.clone(),
         ..Default::default()
     });
-
     let px = MOUSE_PX.load(Ordering::Relaxed).max(base.mouse_px);
     let gaps = IDLE_GAPS.load(Ordering::Relaxed).max(base.idle_gaps);
     let times = KEY_TIMES.lock().unwrap().clone();
     let (focus, frag, rhythm_score, rhythm_label) = analyze_rhythm(&times);
-
     let session = session_ticks();
     let merged = merge_app_seconds(&base.apps, &session);
     let total: u64 = merged.iter().map(|a| a.1).sum::<u64>().max(1);
@@ -465,10 +509,9 @@ pub fn current() -> FocusDay {
             pct: seconds as f64 / total as f64 * 100.0,
         })
         .collect();
-
     FocusDay {
         date,
-        mouse_km: (px as f64) * 0.000264,
+        mouse_km: (px as f64) * PX_TO_KM,
         mouse_px: px,
         idle_gaps: gaps,
         focus_blocks: focus.max(base.focus_blocks),
@@ -481,21 +524,6 @@ pub fn current() -> FocusDay {
             .max(base.wechat_fg_s),
         wechat_mp_s: WECHAT_MP_S.load(Ordering::Relaxed).max(base.wechat_mp_s),
     }
-}
-
-pub fn persist() {
-    let day = current();
-    let mut map = load();
-    map.insert(day.date.clone(), day);
-    if map.len() > 60 {
-        let keys: Vec<String> = map.keys().cloned().collect();
-        for k in keys.into_iter().take(map.len() - 60) {
-            map.remove(&k);
-        }
-    }
-    save(&map);
-    // Folded session into disk — clear so next persist does not double-count.
-    APP_TICKS.with(|m| m.clear());
 }
 
 pub fn warmup() {
