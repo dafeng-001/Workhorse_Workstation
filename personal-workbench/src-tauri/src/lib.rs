@@ -882,10 +882,17 @@ async fn get_health_detail(state: State<'_, AppState>) -> Result<serde_json::Val
         let idle = activity::current_idle_seconds();
         let sit_min = cfg.idle_threshold_minutes.max(45);
         let sit_secs = sit_min * 60;
-        let streak_s = day.max_streak_seconds.max(0);
+        let act_today = act_week
+            .iter()
+            .find(|a| a.date == day.date)
+            .cloned()
+            .unwrap_or_default();
+        // 久坐/连续：优先高置信最长连续（activity.max_streak 已改为不丢 max）
+        let streak_s = act_today
+            .max_streak_seconds
+            .max(day.max_streak_seconds);
         let sit_alert = streak_s >= sit_secs;
 
-        // 健康分趋势：以 focus rhythm_score 为主，今日用 health.score 兜底
         let mut score_trend: Vec<serde_json::Value> = Vec::new();
         for f in &focus_hist {
             let mut sc = f.rhythm_score as i64;
@@ -902,17 +909,18 @@ async fn get_health_detail(state: State<'_, AppState>) -> Result<serde_json::Val
             }));
         }
 
-        // 作息：近 7 天在线/工作时长
         let mut week_hours: Vec<serde_json::Value> = Vec::new();
         for a in &act_week {
             let d = daily_hist.iter().find(|x| x.date == a.date);
             week_hours.push(serde_json::json!({
                 "date": a.date,
                 "online_s": a.active_seconds,
-                "work_s": d.map(|x| x.work_seconds).unwrap_or(a.active_seconds),
+                "confident_s": a.confident_seconds,
+                "work_s": d.map(|x| x.work_seconds).unwrap_or(a.confident_seconds),
                 "keys": d.map(|x| x.keys).unwrap_or(0),
                 "locks": d.map(|x| x.locks).unwrap_or(0),
-                "streak_s": d.map(|x| x.max_streak_seconds).unwrap_or(a.max_streak_seconds),
+                "streak_s": a.max_streak_seconds.max(d.map(|x| x.max_streak_seconds).unwrap_or(0)),
+                "away_gaps": a.away_gaps,
             }));
         }
 
@@ -929,12 +937,9 @@ async fn get_health_detail(state: State<'_, AppState>) -> Result<serde_json::Val
             }
         }
 
-        let work_s = day.work_seconds.max(day.max_streak_seconds);
-        let online_s = act_week
-            .iter()
-            .find(|a| a.date == day.date)
-            .map(|a| a.active_seconds)
-            .unwrap_or(0);
+        let work_s = act_today.confident_seconds.max(day.max_streak_seconds);
+        let online_s = act_today.active_seconds;
+        let confident_s = act_today.confident_seconds;
 
         let mut tips: Vec<String> = health.tips.clone();
         if sit_alert {
@@ -959,6 +964,10 @@ async fn get_health_detail(state: State<'_, AppState>) -> Result<serde_json::Val
                 "work_s": work_s,
                 "work_label": daily::format_hm(work_s),
                 "online_s": online_s,
+                "confident_s": confident_s,
+                "confident_label": activity::format_duration(confident_s),
+                "away_gaps": act_today.away_gaps,
+                "away_s": act_today.away_seconds,
                 "idle_s": idle,
                 "focus_blocks": focus.focus_blocks,
                 "frag": focus.fragment_events,
@@ -967,6 +976,7 @@ async fn get_health_detail(state: State<'_, AppState>) -> Result<serde_json::Val
                 "rhythm_label": focus.rhythm_label,
                 "health_score": health.score,
                 "health_level": health.level,
+                "health_formula": health.formula,
                 "mouse_km": focus.mouse_km,
                 "im_pct": (im_pct * 10.0).round() / 10.0,
             },
@@ -984,11 +994,20 @@ async fn get_health_detail(state: State<'_, AppState>) -> Result<serde_json::Val
                     "暂无连续工作".into()
                 }
             },
+            "health": {
+                "score": health.score,
+                "level": health.level,
+                "formula": health.formula,
+                "confident_hours": health.confident_hours,
+                "streak_hours": health.streak_hours,
+                "away_gaps": health.away_gaps,
+                "away_hours": health.away_hours,
+            },
             "score_trend": score_trend,
             "week_hours": week_hours,
             "apps": focus.apps,
             "tips": tips,
-            "note": "健康=在线采样+输入节奏+前台应用；久坐按连续工作/空闲阈值提醒",
+            "note": "健康分 v2：高置信在机 + 最长连续 + 离位次数连续计分；详见 CALC.md",
         })
     })
     .await

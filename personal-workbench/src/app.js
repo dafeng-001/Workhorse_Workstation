@@ -219,8 +219,8 @@ async function loadHealthDetail() {
     const sit = d.sit || {};
     setMany(["h-today-score"], t.health_score ?? "—");
     setMany(["h-today-level"], t.health_level || "");
-    setMany(["h-online"], fmtDurSec(t.online_s));
-    setMany(["h-work"], `工作 ${t.work_label || fmtDurSec(t.work_s)}`);
+    setMany(["h-online"], t.confident_label || fmtDurSec(t.confident_s || t.online_s));
+    setMany(["h-work"], `离位 ${t.away_gaps ?? 0} 次 · 在线 ${fmtDurSec(t.online_s)}`);
     setMany(["h-streak"], t.streak_label || fmtDurSec(t.streak_s));
     setMany(["h-sit"], sit.alert ? "建议起身" : `阈值 ${sit.threshold_min||45} 分钟`);
     setMany(["h-keys"], t.keys ?? 0);
@@ -229,7 +229,7 @@ async function loadHealthDetail() {
     setMany(["h-im"], `通讯 ${t.im_pct ?? 0}%`);
     setMany(["h-sit-msg"], sit.message || "");
     setMany(["h-sit-state"], sit.alert ? "久坐中" : (sit.streak_s ? "工作中" : "空闲"));
-    setMany(["h-sit-sub"], sit.message || "");
+    setMany(["h-sit-sub"], `高置信 ${t.confident_label||"—"} · 离位 ${t.away_gaps ?? 0} 次`);
     const sitCard = $("h-sit-card");
     if (sitCard) sitCard.classList.toggle("alert", !!sit.alert);
     setMany(["h-focus"], `${t.focus_blocks ?? 0} / ${t.frag ?? 0}`);
@@ -242,7 +242,7 @@ async function loadHealthDetail() {
     setMany(["h-score-2"], t.health_score ?? "—");
     setMany(["h-level-2"], t.health_level || "");
     setMany(["f-rhythm-label-2"], t.rhythm_label || "");
-    setMany(["h-note"], d.note || "");
+    setMany(["h-note"], (d.note||"") + (t.health_formula ? `（${t.health_formula}）` : ""));
     const tips = d.tips || [];
     const tipEl = $("h-tips-2");
     if (tipEl) tipEl.innerHTML = tips.map((x)=>`<li>${escapeHtml(x)}</li>`).join("") || "<li>暂无建议</li>";
@@ -250,9 +250,9 @@ async function loadHealthDetail() {
     const week = d.week_hours || [];
     const wh = $("h-week-hours");
     if (wh) {
-      const max = Math.max(...week.map((x)=>x.online_s||0), 1);
+      const max = Math.max(...week.map((x)=>Number(x.confident_s||x.online_s)||0), 1);
       wh.innerHTML = week.map((x)=>{
-        const n = Number(x.online_s)||0;
+        const n = Number(x.confident_s||x.online_s)||0;
         const h = Math.max(3, Math.round(n/max*100));
         return `<div class="bar-col ${x.date===todayKey()?"today":""}" title="${x.date} 在线${fmtDurSec(n)} 工作${fmtDurSec(x.work_s||0)}">
           <span class="bar-val">${fmtDurSec(n)}</span>
