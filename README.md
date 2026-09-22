@@ -4,6 +4,7 @@
 
 > 源码 crate 名为 `personal-workbench`，界面与可执行文件名为 **牛马工作台**。  
 > 全部指标的来源与计算公式见 **[CALC.md](./CALC.md)**（改统计逻辑必须同步该文档）。
+![Uploading image.png…]()
 
 ---
 
