@@ -95,8 +95,20 @@
 
 ## 运行
 
+**下载便携版**：[Releases](https://github.com/dafeng-001/Workhorse_Workstation/releases) → 取最新的 `Workhorse_Workstation-win64.exe`。
+
+或本机直接运行：
+
 ```text
 牛马工作台\牛马工作台.exe
+```
+
+每次发版可执行：
+
+```powershell
+powershell -File scripts\publish-release.ps1
+# 指定 tag / 说明
+powershell -File scripts\publish-release.ps1 -Tag v2026.09.22 -Notes '本周改动说明'
 ```
 
 同目录便携数据：
@@ -126,7 +138,9 @@ cargo build --release
 
 ```text
 牛马工作台/
-├── 牛马工作台.exe            # 便携运行入口
+├── 牛马工作台.exe            # 便携运行入口（.gitignore，发行走 Release）
+├── scripts/
+│   └── publish-release.ps1   # 上传本机 exe 到 GitHub Release
 ├── config.json               # 配置（扁平字段）
 ├── data/                     # metrics.sqlite + 运行数据
 │   ├── metrics.sqlite        # 指标主库（日表，可永久保留）
