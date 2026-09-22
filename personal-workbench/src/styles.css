@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --bg: #0b0f14;
   --bg-1: #121820;
   --bg-2: #18202a;
@@ -283,32 +283,7 @@ td.empty { text-align: center; color: var(--ink-faint); padding: 28px; }
 .weekly-md strong { color: var(--ink); font-weight: 650; }
 .weekly-meta { margin: 0 0 8px; }
 
-/* 可收起角标通知 */
-.toast-stack {
-  position: fixed; top: 16px; right: 16px; z-index: 4000;
-  display: flex; flex-direction: column; gap: 8px;
-  max-width: min(360px, calc(100vw - 32px));
-  pointer-events: none;
-}
-.toast-stack[hidden] { display: none !important; }
-.toast-item {
-  pointer-events: auto;
-  display: flex; align-items: flex-start; gap: 8px;
-  padding: 10px 12px; border-radius: 10px;
-  background: var(--bg-1); border: 1px solid var(--line-soft);
-  color: var(--ink); font-size: 12.5px; line-height: 1.45;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  opacity: 1; transform: translateY(0);
-  transition: opacity 0.25s ease, transform 0.25s ease;
-}
-.toast-item.fade { opacity: 0; transform: translateY(-6px); }
-.toast-item .toast-msg { flex: 1; min-width: 0; word-break: break-word; }
-.toast-item .toast-x {
-  appearance: none; border: 0; background: transparent;
-  color: var(--ink-faint); cursor: pointer; font-size: 16px;
-  line-height: 1; padding: 0 2px;
-}
-.toast-item .toast-x:hover { color: var(--ink); }
+
 
 /* quiet toasts — collapsible in-app notices */
 .toast-stack {
@@ -335,34 +310,7 @@ td.empty { text-align: center; color: var(--ink-faint); padding: 28px; }
 }
 .toast-item .toast-x:hover { color: var(--ink); }
 
-/* 可收起角标通知 */
-.toast-stack {
-  position: fixed; top: 16px; right: 16px; z-index: 4000;
-  display: flex; flex-direction: column; gap: 8px;
-  max-width: min(360px, calc(100vw - 32px));
-  pointer-events: none;
-}
-.toast-stack[hidden] { display: none !important; }
-.toast-item {
-  pointer-events: auto;
-  display: flex; align-items: flex-start; gap: 8px;
-  padding: 10px 12px; border-radius: 10px;
-  background: var(--bg-1);
-  border: 1px solid var(--line-soft);
-  color: var(--ink);
-  font-size: 12.5px; line-height: 1.45;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  opacity: 1;
-  transition: opacity 0.25s ease, transform 0.25s ease;
-}
-.toast-item.fade { opacity: 0; transform: translateY(-6px); }
-.toast-item .toast-msg { flex: 1; min-width: 0; word-break: break-word; }
-.toast-item .toast-x {
-  appearance: none; border: 0; background: transparent;
-  color: var(--ink-faint); cursor: pointer; font-size: 16px;
-  line-height: 1; padding: 0 2px;
-}
-.toast-item .toast-x:hover { color: var(--ink); }
+
 
 /* quiet toasts — collapsible in-app notices */
 .toast-stack {
@@ -389,32 +337,11 @@ td.empty { text-align: center; color: var(--ink-faint); padding: 28px; }
 }
 .toast-item .toast-x:hover { color: var(--ink); }
 
-/* 可收起角标通知（替代阻塞 alert） */
-.toast-stack {
-  position: fixed; top: 16px; right: 16px; z-index: 4000;
-  display: flex; flex-direction: column; gap: 8px;
-  max-width: min(360px, calc(100vw - 32px));
-  pointer-events: none;
-}
-.toast-stack[hidden] { display: none !important; }
-.toast-item {
-  pointer-events: auto;
-  display: flex; align-items: flex-start; gap: 8px;
-  padding: 10px 12px; border-radius: 10px;
-  background: var(--bg-1); border: 1px solid var(--line-soft);
-  color: var(--ink); font-size: 12.5px; line-height: 1.45;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  transition: opacity 0.25s ease, transform 0.25s ease;
-}
-.toast-item.fade { opacity: 0; transform: translateY(-4px); }
-.toast-item .toast-msg { flex: 1; min-width: 0; word-break: break-word; }
-.toast-item .toast-x {
-  appearance: none; border: 0; background: transparent; color: var(--ink-faint);
-  font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px;
-}
-.toast-item .toast-x:hover { color: var(--ink); }
+
 
 /* file types */
+
+
 .ov-range {
   margin-bottom: 12px;
   padding: 10px 12px;
@@ -481,32 +408,7 @@ td.empty { text-align: center; color: var(--ink-faint); padding: 28px; }
   width: 42%;
 }
 
-/* 可收起角标通知 */
-.toast-stack {
-  position: fixed; top: 16px; right: 16px; z-index: 4000;
-  display: flex; flex-direction: column; gap: 8px;
-  max-width: min(360px, calc(100vw - 32px));
-  pointer-events: none;
-}
-.toast-stack[hidden] { display: none !important; }
-.toast-item {
-  pointer-events: auto;
-  display: flex; align-items: flex-start; gap: 8px;
-  padding: 10px 12px; border-radius: 10px;
-  background: var(--bg-1); border: 1px solid var(--line-soft);
-  color: var(--ink); font-size: 12.5px; line-height: 1.45;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  opacity: 1; transform: translateY(0);
-  transition: opacity 0.25s ease, transform 0.25s ease;
-}
-.toast-item.fade { opacity: 0; transform: translateY(-6px); }
-.toast-item .toast-msg { flex: 1; min-width: 0; word-break: break-word; }
-.toast-item .toast-x {
-  appearance: none; border: 0; background: transparent;
-  color: var(--ink-faint); cursor: pointer; font-size: 16px;
-  line-height: 1; padding: 0 2px;
-}
-.toast-item .toast-x:hover { color: var(--ink); }
+
 
 /* quiet toasts — collapsible in-app notices */
 .toast-stack {
@@ -533,34 +435,7 @@ td.empty { text-align: center; color: var(--ink-faint); padding: 28px; }
 }
 .toast-item .toast-x:hover { color: var(--ink); }
 
-/* 可收起角标通知 */
-.toast-stack {
-  position: fixed; top: 16px; right: 16px; z-index: 4000;
-  display: flex; flex-direction: column; gap: 8px;
-  max-width: min(360px, calc(100vw - 32px));
-  pointer-events: none;
-}
-.toast-stack[hidden] { display: none !important; }
-.toast-item {
-  pointer-events: auto;
-  display: flex; align-items: flex-start; gap: 8px;
-  padding: 10px 12px; border-radius: 10px;
-  background: var(--bg-1);
-  border: 1px solid var(--line-soft);
-  color: var(--ink);
-  font-size: 12.5px; line-height: 1.45;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  opacity: 1;
-  transition: opacity 0.25s ease, transform 0.25s ease;
-}
-.toast-item.fade { opacity: 0; transform: translateY(-6px); }
-.toast-item .toast-msg { flex: 1; min-width: 0; word-break: break-word; }
-.toast-item .toast-x {
-  appearance: none; border: 0; background: transparent;
-  color: var(--ink-faint); cursor: pointer; font-size: 16px;
-  line-height: 1; padding: 0 2px;
-}
-.toast-item .toast-x:hover { color: var(--ink); }
+
 
 /* quiet toasts — collapsible in-app notices */
 .toast-stack {
@@ -586,6 +461,10 @@ td.empty { text-align: center; color: var(--ink-faint); padding: 28px; }
   font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px;
 }
 .toast-item .toast-x:hover { color: var(--ink); }
+
+
+
+/* file types */
 
 /* 可收起角标通知（替代阻塞 alert） */
 .toast-stack {
@@ -611,8 +490,6 @@ td.empty { text-align: center; color: var(--ink-faint); padding: 28px; }
   font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px;
 }
 .toast-item .toast-x:hover { color: var(--ink); }
-
-/* file types */
 .seg { display: inline-flex; gap: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 3px; }
 .seg-btn {
   appearance: none; border: 0; background: transparent; color: var(--ink-dim);
