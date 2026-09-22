@@ -112,6 +112,17 @@ powershell -File scripts\publish-release.ps1
 powershell -File scripts\publish-release.ps1 -Tag v2026.09.22 -Notes '本周改动说明'
 ```
 
+### 版本与发版
+
+- **每次提交/发版：版本号末段 +1**（`2026.9.22` → `2026.9.23`）
+- `scripts\bump-version.ps1` 同步 `Cargo.toml` 与 `tauri.conf.json`
+- Release tag 为 **`v` + 版本号**（如 `v2026.9.23`）
+
+```powershell
+powershell -File scripts\bump-version.ps1
+powershell -File scripts\publish-release.ps1 -Tag v2026.9.23 -Notes '说明'
+```
+
 ### 在线更新
 
 设置 → **系统 → 在线更新** →「检查更新」→「下载并更新」：对照 GitHub Releases 最新便携包，下载校验后自动替换 exe 并重启。  
