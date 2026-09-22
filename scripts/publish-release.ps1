@@ -3,7 +3,7 @@
 # Usage: powershell -File scripts/publish-release.ps1 [-Tag v2026.09.22] [-Notes 'text']
 
 param(
-  [string]$Tag = ("v" + (Get-Date -Format 'yyyy.MM.dd')),
+  [string]$Tag = '',
   [string]$Notes = '',
   [string]$Repo = 'dafeng-001/Workhorse_Workstation',
   [string]$ExePath = ''
@@ -11,6 +11,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+if (-not $Tag) {
+  $cargo = Join-Path $root 'personal-workbench\src-tauri\Cargo.toml'
+  $ct = Get-Content -Raw -Encoding UTF8 $cargo
+  if ($ct -notmatch '(?m)^version\s*=\s*"([^"]+)"') { throw 'version not found in Cargo.toml' }
+  $Tag = 'v' + $Matches[1]
+}
 if (-not $ExePath) {
   $ExePath = Join-Path $root ([string]([char]0x725B) + [char]0x9A6C + [char]0x5DE5 + [char]0x4F5C + [char]0x53F0 + '.exe')
   if (-not (Test-Path $ExePath)) {

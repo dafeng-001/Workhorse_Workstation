@@ -1,6 +1,7 @@
-# Bump app version (last segment +1) in Cargo.toml + tauri.conf.json.
-# ASCII-only source. Usage: powershell -File scripts/bump-version.ps1 [-To 2026.9.23]
-# Without -To, reads current from Cargo.toml and adds 1 to the last numeric part.
+# Bump app version: last segment +1 (0.0.1 -> 0.0.2). ASCII-only source.
+# Syncs Cargo.toml package version + tauri.conf.json version.
+# Usage: powershell -File scripts/bump-version.ps1 [-To 0.0.2]
+# Do NOT rewrite README when bumping for a commit/release.
 
 param([string]$To = '')
 
@@ -10,7 +11,7 @@ $cargo = Join-Path $root 'personal-workbench\src-tauri\Cargo.toml'
 $conf  = Join-Path $root 'personal-workbench\src-tauri\tauri.conf.json'
 
 $cargoText = Get-Content -Raw -Encoding UTF8 $cargo
-if ($cargoText -notmatch 'version\s*=\s*"([^"]+)"') { throw 'version not found in Cargo.toml' }
+if ($cargoText -notmatch '(?m)^version\s*=\s*"([^"]+)"') { throw 'version not found in Cargo.toml' }
 $current = $Matches[1]
 
 if (-not $To) {
@@ -20,20 +21,16 @@ if (-not $To) {
   $To = ($parts -join '.')
 }
 
-$cargoText = $cargoText -replace 'version\s*=\s*"[^"]+"', ('version = "' + $To + '"', 1)
-# only first version = under [package] — replace once
-$cargoText = (Get-Content -Raw -Encoding UTF8 $cargo)
-$idx = $cargoText.IndexOf('version = "')
-if ($idx -lt 0) { throw 'Cargo.toml package version missing' }
-$cargoText = $cargoText.Remove($idx, ('version = "' + $current + '"').Length)
-$cargoText = $cargoText.Insert($idx, ('version = "' + $To + '"'))
+$oldLine = 'version = "' + $current + '"'
+$newLine = 'version = "' + $To + '"'
+$idx = $cargoText.IndexOf($oldLine)
+if ($idx -lt 0) { throw ('Cargo.toml missing ' + $oldLine) }
+$cargoText = $cargoText.Remove($idx, $oldLine.Length).Insert($idx, $newLine)
 Set-Content -Path $cargo -Value $cargoText -Encoding UTF8 -NoNewline
 
-$confObj = Get-Content -Raw -Encoding UTF8 $conf | ConvertFrom-Json
-$confObj.version = $To
-$confObj | ConvertTo-Json -Depth 20 | Set-Content -Path $conf -Encoding UTF8
+$confRaw = Get-Content -Raw -Encoding UTF8 $conf
+$confRaw = $confRaw -replace '"version"\s*:\s*"[^"]+"', ('"version": "' + $To + '"')
+Set-Content -Path $conf -Value $confRaw -Encoding UTF8 -NoNewline
 
-$tag = 'v' + $To
-Write-Host "version $current -> $To"
-Write-Host "release tag should be: $tag"
-Write-Host "next: scripts/publish-release.ps1 -Tag $tag"
+Write-Host ("version " + $current + " -> " + $To)
+Write-Host ("release tag: v" + $To)
