@@ -1,4 +1,4 @@
-﻿const invoke = (...a) => window.__TAURI__.core.invoke(...a);
+const invoke = (...a) => window.__TAURI__.core.invoke(...a);
 const $ = (id) => document.getElementById(id);
 
 function escapeHtml(s) {
@@ -1393,7 +1393,7 @@ $("btn-check-update")?.addEventListener("click", async ()=>{
 });
 $("btn-apply-update")?.addEventListener("click", async ()=>{
   const btn = $("btn-apply-update"), st = $("update-status");
-  if (!confirm("将下载新版并替换当前程序，随后自动重启。继续？")) return;
+  if (!confirmMsg("将下载新版并替换当前程序，随后自动重启。继续？")) return;
   if (btn) { btn.disabled = true; btn.textContent = "下载中…"; }
   try {
     const res = await invoke("apply_update");
