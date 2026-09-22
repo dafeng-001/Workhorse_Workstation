@@ -514,6 +514,31 @@ td.empty { text-align: center; color: var(--ink-faint); padding: 28px; }
 }
 .toast-item .toast-x:hover { color: var(--ink); }
 
+/* 可收起角标通知（替代阻塞 alert） */
+.toast-stack {
+  position: fixed; top: 16px; right: 16px; z-index: 4000;
+  display: flex; flex-direction: column; gap: 8px;
+  max-width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.toast-stack[hidden] { display: none !important; }
+.toast-item {
+  pointer-events: auto;
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 10px 12px; border-radius: 10px;
+  background: var(--bg-1); border: 1px solid var(--line-soft);
+  color: var(--ink); font-size: 12.5px; line-height: 1.45;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.toast-item.fade { opacity: 0; transform: translateY(-4px); }
+.toast-item .toast-msg { flex: 1; min-width: 0; word-break: break-word; }
+.toast-item .toast-x {
+  appearance: none; border: 0; background: transparent; color: var(--ink-faint);
+  font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px;
+}
+.toast-item .toast-x:hover { color: var(--ink); }
+
 /* file types */
 
 
@@ -638,6 +663,31 @@ td.empty { text-align: center; color: var(--ink-faint); padding: 28px; }
 .toast-item .toast-x:hover { color: var(--ink); }
 
 
+
+/* 可收起角标通知（替代阻塞 alert） */
+.toast-stack {
+  position: fixed; top: 16px; right: 16px; z-index: 4000;
+  display: flex; flex-direction: column; gap: 8px;
+  max-width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.toast-stack[hidden] { display: none !important; }
+.toast-item {
+  pointer-events: auto;
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 10px 12px; border-radius: 10px;
+  background: var(--bg-1); border: 1px solid var(--line-soft);
+  color: var(--ink); font-size: 12.5px; line-height: 1.45;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.toast-item.fade { opacity: 0; transform: translateY(-4px); }
+.toast-item .toast-msg { flex: 1; min-width: 0; word-break: break-word; }
+.toast-item .toast-x {
+  appearance: none; border: 0; background: transparent; color: var(--ink-faint);
+  font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px;
+}
+.toast-item .toast-x:hover { color: var(--ink); }
 
 /* 可收起角标通知（替代阻塞 alert） */
 .toast-stack {
