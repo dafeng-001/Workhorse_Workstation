@@ -614,7 +614,12 @@
               <label>提醒时间（小时） <input id="cfg-remind-h" type="number" min="0" max="23" /></label>
               <label>未提交提醒阈值（个） <input id="cfg-dirty-warn" type="number" min="5" max="200" /></label>
             </div>
-            <p class="hint">未提交提醒偏「开发」，为减少页签仍放在此处，与摘要提醒一并配置。</p>
+            <label class="check"><input type="checkbox" id="cfg-weekly-remind" checked /> 周报定时提醒（本周未写好时托盘提示）</label>
+            <div class="row two">
+              <label>周报提醒 · 星期 <input id="cfg-weekly-remind-day" type="number" min="1" max="7" /></label>
+              <label>周报提醒 · 小时 <input id="cfg-weekly-remind-hour" type="number" min="0" max="23" /></label>
+            </div>
+            <p class="hint">星期：1=周一 … 5=周五 … 7=周日。未提交提醒偏「开发」，为减少页签仍放在此处。</p>
           </div>
 
           <div class="cfg-block">
@@ -654,6 +659,12 @@
             <label class="check"><input type="checkbox" id="cfg-widget" checked /> 显示桌面挂件</label>
             <label class="check"><input type="checkbox" id="cfg-startup" /> 开机自启（静默进托盘）</label>
             <label class="check"><input type="checkbox" id="cfg-show-window" checked /> 普通启动时打开主窗口</label>
+          </div>
+
+          <div class="cfg-block">
+            <h4>通知样式</h4>
+            <label class="check"><input type="checkbox" id="cfg-quiet-toasts" checked /> 应用内提示用角标通知（可收起，不用系统弹窗）</label>
+            <p class="hint">关闭后仍用旧版 alert 弹窗。角标通知可随时点 × 关闭或收进「铃」历史。</p>
           </div>
 
           <div class="cfg-block">

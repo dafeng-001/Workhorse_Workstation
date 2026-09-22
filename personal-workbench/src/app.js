@@ -1,9 +1,50 @@
-const invoke = (...a) => window.__TAURI__.core.invoke(...a);
+﻿const invoke = (...a) => window.__TAURI__.core.invoke(...a);
 const $ = (id) => document.getElementById(id);
 
 function escapeHtml(s) {
   return String(s ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
+/* ---- 可收起角标通知（替代 alert） ---- */
+let notifyQuiet = true;
+let notifySeq = 0;
+const notifyHistory = [];
+
+function ensureNotifyDom() {
+  if ($("toast-stack")) return;
+  const stack = document.createElement("div");
+  stack.id = "toast-stack";
+  stack.className = "toast-stack";
+  stack.hidden = true;
+  document.body.appendChild(stack);
+}
+
+function pushNotify(msg, kind) {
+  ensureNotifyDom();
+  const stack = $("toast-stack");
+  const id = "nt-" + (++notifySeq);
+  const el = document.createElement("div");
+  el.className = "toast-item" + (kind ? " " + kind : "");
+  el.id = id;
+  el.innerHTML = `<span class="toast-msg"></span><button type="button" class="toast-x" title="关闭">×</button>`;
+  el.querySelector(".toast-msg").textContent = String(msg ?? "");
+  el.querySelector(".toast-x").addEventListener("click", () => el.remove());
+  stack.appendChild(el);
+  stack.hidden = false;
+  notifyHistory.unshift({ t: Date.now(), msg: String(msg ?? ""), kind: kind || "" });
+  if (notifyHistory.length > 30) notifyHistory.pop();
+  setTimeout(() => { el.classList.add("fade"); setTimeout(() => el.remove(), 280); }, 4200);
+}
+
+function alertMsg(msg) {
+  if (notifyQuiet) pushNotify(msg);
+  else alert(String(msg));
+}
+
+function confirmMsg(msg) {
+  // 需要阻塞确认的场景仍用系统 confirm（破坏性操作）
+  return confirm(String(msg));
 }
 
 let mode = "overview";
@@ -749,6 +790,13 @@ function openConfig(cfg) {
   $("cfg-poll").value = cfg.activity_poll_seconds ?? 60;
   if ($("cfg-sit-break")) $("cfg-sit-break").value = cfg.sit_break_minutes ?? 6;
   if ($("cfg-retention")) $("cfg-retention").value = cfg.metrics_retention_days ?? 0;
+  if ($("cfg-weekly-remind")) $("cfg-weekly-remind").checked = cfg.weekly_remind !== false;
+  if ($("cfg-weekly-remind-day")) $("cfg-weekly-remind-day").value = cfg.weekly_remind_day ?? 5;
+  if ($("cfg-weekly-remind-hour")) $("cfg-weekly-remind-hour").value = cfg.weekly_remind_hour ?? 16;
+  if ($("cfg-quiet-toasts")) {
+    $("cfg-quiet-toasts").checked = cfg.quiet_toasts !== false;
+    notifyQuiet = $("cfg-quiet-toasts").checked;
+  }
   syncWidgetUi(cfg.widget_enabled !== false);
   if ($("cfg-remind")) $("cfg-remind").checked = cfg.daily_reminder !== false;
   if ($("cfg-remind-h")) $("cfg-remind-h").value = cfg.remind_hour ?? 18;
@@ -870,6 +918,10 @@ async function saveConfigFromForm() {
     activity_poll_seconds: Math.max(15, Number($("cfg-poll").value)||60),
     sit_break_minutes: Math.max(3, Number($("cfg-sit-break")?.value)||6),
     metrics_retention_days: Math.max(0, Number($("cfg-retention")?.value)||0),
+    weekly_remind: $("cfg-weekly-remind")?.checked !== false,
+    weekly_remind_day: Math.min(7, Math.max(1, Number($("cfg-weekly-remind-day")?.value)||5)),
+    weekly_remind_hour: Math.min(23, Math.max(0, Number($("cfg-weekly-remind-hour")?.value)||16)),
+    quiet_toasts: $("cfg-quiet-toasts")?.checked !== false,
     // 运行时字段从上一次配置保留，避免设置保存把挂件位置等冲掉
     weekly_dir: prev?.weekly_dir || "weekly",
     data_dir: prev?.data_dir || "data",
@@ -936,7 +988,7 @@ async function addTodo() {
   try {
     renderTodos(await invoke("add_todo", { title, repo: null }));
     if (input) input.value = "";
-  } catch (e) { alert(String(e)); }
+  } catch (e) { alertMsg(String(e)); }
 }
 
 function renderGigs(payload) {
@@ -980,8 +1032,8 @@ async function loadGigs() {
 async function addGig() {
   const title = ($("gig-title")?.value || "").trim();
   const amount = Number($("gig-amount")?.value);
-  if (!title) { alert("请填写单子名称"); return; }
-  if (!Number.isFinite(amount) || amount < 0) { alert("请填写有效金额"); return; }
+  if (!title) { alertMsg("请填写单子名称"); return; }
+  if (!Number.isFinite(amount) || amount < 0) { alertMsg("请填写有效金额"); return; }
   try {
     renderGigs(await invoke("add_gig", {
       title,
@@ -993,7 +1045,7 @@ async function addGig() {
     }));
     if ($("gig-title")) $("gig-title").value = "";
     if ($("gig-amount")) $("gig-amount").value = "";
-  } catch (e) { alert(String(e)); }
+  } catch (e) { alertMsg(String(e)); }
 }
 
 function refreshAll() {
@@ -1009,26 +1061,26 @@ $("todo-list")?.addEventListener("click", async (e)=>{
   const btn = e.target.closest("[data-act='del']");
   if (!btn) return;
   try { renderTodos(await invoke("delete_todo", { id: btn.dataset.id })); }
-  catch (err) { alert(String(err)); }
+  catch (err) { alertMsg(String(err)); }
 });
 $("todo-list")?.addEventListener("change", async (e)=>{
   const input = e.target.closest('input[data-act="toggle"]');
   if (!input) return;
   try { renderTodos(await invoke("toggle_todo", { id: input.dataset.id })); }
-  catch (err) { alert(String(err)); }
+  catch (err) { alertMsg(String(err)); }
 });
 $("btn-gig-add")?.addEventListener("click", addGig);
 $("gig-body")?.addEventListener("change", async (e)=>{
   const sel = e.target.closest('select[data-act="status"]');
   if (!sel) return;
   try { renderGigs(await invoke("update_gig_status", { id: sel.dataset.id, status: sel.value })); }
-  catch (err) { alert(String(err)); }
+  catch (err) { alertMsg(String(err)); }
 });
 $("gig-body")?.addEventListener("click", async (e)=>{
   const btn = e.target.closest('[data-act="gig-del"]');
   if (!btn) return;
   try { renderGigs(await invoke("delete_gig", { id: btn.dataset.id })); }
-  catch (err) { alert(String(err)); }
+  catch (err) { alertMsg(String(err)); }
 });
 
 /* events */
@@ -1057,7 +1109,7 @@ $("btn-weekly").addEventListener("click", async ()=>{
     const res = await invoke("generate_weekly");
     setMode("code");
     await applyWeeklyResult(res, "草稿已生成");
-  } catch (e) { alert(String(e)); }
+  } catch (e) { alertMsg(String(e)); }
   finally { btn.disabled = false; btn.textContent = "周报草稿"; }
 });
 $("btn-config").addEventListener("click", async ()=>{
@@ -1071,7 +1123,7 @@ $("btn-weekly-draft")?.addEventListener("click", async ()=>{
   try {
     const res = await invoke("generate_weekly");
     await applyWeeklyResult(res, "草稿已生成");
-  } catch (e) { alert(String(e)); }
+  } catch (e) { alertMsg(String(e)); }
   finally { if (btn) { btn.disabled = false; btn.textContent = "草稿"; } }
 });
 $("btn-polish")?.addEventListener("click", async ()=>{
@@ -1080,18 +1132,18 @@ $("btn-polish")?.addEventListener("click", async ()=>{
   try {
     const res = await invoke("polish_weekly");
     await applyWeeklyResult(res, "已润色");
-  } catch (e) { alert(String(e)); }
+  } catch (e) { alertMsg(String(e)); }
   finally { btn.disabled = false; btn.textContent = "润色"; }
 });
 $("btn-copy-weekly")?.addEventListener("click", async ()=>{
   const text = weeklyRaw();
-  if (!text || text.includes("尚未生成")) { alert("还没有周报内容"); return; }
-  try { await navigator.clipboard.writeText(text); alert("已复制到剪贴板"); }
-  catch { alert("复制失败"); }
+  if (!text || text.includes("尚未生成")) { alertMsg("还没有周报内容"); return; }
+  try { await navigator.clipboard.writeText(text); alertMsg("已复制到剪贴板"); }
+  catch { alertMsg("复制失败"); }
 });
 $("btn-export-weekly")?.addEventListener("click", async ()=>{
   const text = weeklyRaw();
-  if (!text || text.includes("尚未生成")) { alert("还没有周报内容"); return; }
+  if (!text || text.includes("尚未生成")) { alertMsg("还没有周报内容"); return; }
   const path = $("weekly-history")?.value || $("m-weekly-path")?.textContent || "周报";
   const base = String(path).split(/[\\/]/).pop() || "周报";
   const name = base.replace(/[\\/:*?"<>|]/g,"_");
@@ -1110,9 +1162,9 @@ $("btn-open-weekly")?.addEventListener("click", async ()=>{
       openP = res.path || "";
     } catch {}
   }
-  if (!openP) { alert("还没有周报文件"); return; }
+  if (!openP) { alertMsg("还没有周报文件"); return; }
   try { await invoke("open_path", { path: openP }); }
-  catch (e) { alert(String(e)); }
+  catch (e) { alertMsg(String(e)); }
 });
 $("weekly-history")?.addEventListener("change", async (e)=>{
   const path = e.target.value;
@@ -1123,7 +1175,7 @@ $("weekly-history")?.addEventListener("change", async (e)=>{
   try {
     const content = await invoke("read_weekly_file", { path });
     setWeeklyPreview(content || "（空文件）", { path, selectPath: path, scope: weeklyScopeLabel() });
-  } catch (err) { alert(String(err)); }
+  } catch (err) { alertMsg(String(err)); }
 });
 
 /* ---- 牛马盘 ---- */
@@ -1311,7 +1363,7 @@ async function loadWeeklyHistory(preferPath) {
 }
 
 $("btn-open-log")?.addEventListener("click", async ()=>{
-  try { await invoke("open_log"); } catch (e) { alert(String(e)); }
+  try { await invoke("open_log"); } catch (e) { alertMsg(String(e)); }
 });
 /* 在线更新 */
 async function refreshAppVersion() {
@@ -1346,10 +1398,10 @@ $("btn-apply-update")?.addEventListener("click", async ()=>{
   try {
     const res = await invoke("apply_update");
     if (st) st.textContent = res?.message || "已启动更新，稍后自动重启";
-    alert(res?.message || "更新包已就绪，程序即将退出并完成替换");
+    alertMsg(res?.message || "更新包已就绪，程序即将退出并完成替换");
   } catch (e) {
     if (st) st.textContent = String(e);
-    alert(String(e));
+    alertMsg(String(e));
     if (btn) { btn.disabled = false; btn.textContent = "下载并更新"; }
   }
 });
@@ -1442,7 +1494,7 @@ $("cfg-scan")?.addEventListener("click", async ()=>{
   try {
     await saveConfigFromForm();
     const res = await invoke("scan_repos");
-    alert(formatScanDiag(res));
+    alertMsg(formatScanDiag(res));
     const hint = $("cfg-scan-hint");
     if (hint) {
       const n = Number(res?.count)||0;
@@ -1452,13 +1504,13 @@ $("cfg-scan")?.addEventListener("click", async ()=>{
     }
     await refresh();
     const cfg = await invoke("get_config"); openConfig(cfg);
-  } catch(e){ alert(String(e)); }
+  } catch(e){ alertMsg(String(e)); }
   finally { btn.disabled=false; btn.textContent="立即扫描仓库"; }
 });
 $("config-form").addEventListener("submit", async (ev)=>{
   if (ev.submitter?.id === "cfg-save") {
     try { await saveConfigFromForm(); }
-    catch(e){ alert(String(e)); ev.preventDefault(); }
+    catch(e){ alertMsg(String(e)); ev.preventDefault(); }
   }
 });
 $("btn-toggle-key")?.addEventListener("click", ()=>{

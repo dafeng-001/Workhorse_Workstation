@@ -1,4 +1,4 @@
-mod activity;
+﻿mod activity;
 mod authors;
 mod config;
 mod daily;
@@ -26,7 +26,7 @@ pub use singleton::{acquire_single_instance, focus_existing_window};
 use config::Config;
 use process::run_capture;
 use serde::Serialize;
-use chrono::Timelike;
+use chrono::{Datelike, Timelike};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::{
@@ -1249,6 +1249,7 @@ fn start_reminder_loop(app: AppHandle<Wry>) {
         let mut last_day = String::new();
         let mut last_dirty = u32::MAX;
         let mut last_sit_alert = String::new();
+        let mut last_weekly_alert = String::new();
         loop {
             let cfg = config::load_config();
             let now = chrono::Local::now();
@@ -1278,6 +1279,20 @@ fn start_reminder_loop(app: AppHandle<Wry>) {
                             lines, dash.git.today_commits, dirty
                         ),
                     );
+                }
+
+                if cfg.weekly_remind {
+                    let wd = now.weekday().num_days_from_monday() as u32 + 1;
+                    if wd == cfg.weekly_remind_day.clamp(1, 7) && hour == cfg.weekly_remind_hour.min(23) {
+                        let key = format!("{today}-weekly-remind");
+                        if last_weekly_alert != key {
+                            let st = weekly::status(&cfg);
+                            if !st.ready {
+                                last_weekly_alert = key;
+                                show_toast("牛马工作台 · 周报提醒", "本周周报还没写好，点开工作台生成草稿吧。");
+                            }
+                        }
+                    }
                 }
             }
 

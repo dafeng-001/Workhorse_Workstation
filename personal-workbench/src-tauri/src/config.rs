@@ -41,6 +41,17 @@ pub struct Config {
     pub daily_reminder: bool,
     #[serde(default = "default_remind_hour")]
     pub remind_hour: u32,
+    /// 周报定时提醒（托盘）
+    #[serde(default = "default_true")]
+    pub weekly_remind: bool,
+    /// 1=周一 … 5=周五 … 7=周日
+    #[serde(default = "default_weekly_remind_day")]
+    pub weekly_remind_day: u32,
+    #[serde(default = "default_weekly_remind_hour")]
+    pub weekly_remind_hour: u32,
+    /// 应用内提示用角标通知而非 alert 弹窗
+    #[serde(default = "default_true")]
+    pub quiet_toasts: bool,
     #[serde(default = "default_dirty_warn")]
     pub dirty_warn_threshold: u32,
     /// Repos included in weekly report (path fragments / names). Empty = all configured repos.
@@ -111,6 +122,12 @@ fn default_widget_mode() -> String {
 fn default_remind_hour() -> u32 {
     18
 }
+fn default_weekly_remind_day() -> u32 {
+    5
+}
+fn default_weekly_remind_hour() -> u32 {
+    16
+}
 fn default_dirty_warn() -> u32 {
     20
 }
@@ -151,6 +168,10 @@ impl Default for Config {
             widget_y: None,
             daily_reminder: true,
             remind_hour: default_remind_hour(),
+            weekly_remind: true,
+            weekly_remind_day: default_weekly_remind_day(),
+            weekly_remind_hour: default_weekly_remind_hour(),
+            quiet_toasts: true,
             dirty_warn_threshold: default_dirty_warn(),
             weekly_repos: Vec::new(),
             llm_api_base: String::new(),
