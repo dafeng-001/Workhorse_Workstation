@@ -1281,6 +1281,26 @@ fn start_reminder_loop(app: AppHandle<Wry>) {
                     );
                 }
 
+                // 周报定时提醒：配置日+时，本周尚未 ready 才提示
+                if cfg.weekly_remind {
+                    let wd = now.weekday().num_days_from_monday() as u32 + 1;
+                    if wd == cfg.weekly_remind_day.clamp(1, 7)
+                        && hour == cfg.weekly_remind_hour.min(23)
+                    {
+                        let key = format!("{today}-weekly-remind");
+                        if last_weekly_alert != key {
+                            let st = weekly::status(&cfg);
+                            if !st.ready {
+                                last_weekly_alert = key;
+                                show_toast(
+                                    "牛马工作台 · 周报提醒",
+                                    "本周周报还没写好，点开工作台生成草稿吧。",
+                                );
+                            }
+                        }
+                    }
+                }
+
                 // 周报定时提醒：配置日+时，本周未 ready 则提醒一次
                 if cfg.weekly_remind {
                     let wd = now.weekday().num_days_from_monday() as u32 + 1; // 1=Mon
