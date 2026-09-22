@@ -1,4 +1,4 @@
-const invoke = (...a) => window.__TAURI__.core.invoke(...a);
+﻿const invoke = (...a) => window.__TAURI__.core.invoke(...a);
 const $ = (id) => document.getElementById(id);
 
 function escapeHtml(s) {
