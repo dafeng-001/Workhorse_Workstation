@@ -19,6 +19,103 @@ function fmtDur(secs) {
   const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
   return h ? `${h}h${String(m).padStart(2,"0")}m` : `${m}m`;
 }
+
+/* 轻量 Markdown 预览（仅周报面板使用） */
+function renderWeeklyMarkdown(md) {
+  const text = String(md ?? "");
+  if (!text.trim() || text.includes("尚未生成")) {
+    return `<div class="ext-empty">尚未生成。点「草稿」或「润色」按 开发/办公/健康 出稿</div>`;
+  }
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  let html = "";
+  let inCode = false;
+  let inList = false;
+  const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
+  const inline = (s) => escapeHtml(s)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, "");
+    if (line.startsWith("```")) {
+      closeList();
+      html += inCode ? "</code></pre>" : "<pre class=\"md-code\"><code>";
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) { html += escapeHtml(line) + "\n"; continue; }
+    if (!line.trim()) { closeList(); continue; }
+    if (/^---+$/.test(line.trim())) { closeList(); html += "<hr class=\"md-hr\"/>"; continue; }
+    const h = line.match(/^(#{1,4})\s+(.*)$/);
+    if (h) {
+      closeList();
+      const lv = Math.min(h[1].length, 4);
+      html += `<h${lv} class="md-h${lv}">${inline(h[2])}</h${lv}>`;
+      continue;
+    }
+    if (/^>\s?/.test(line)) {
+      closeList();
+      html += `<blockquote class="md-quote">${inline(line.replace(/^>\s?/, ""))}</blockquote>`;
+      continue;
+    }
+    const li = line.match(/^\s*(?:[-*+]|\d+[.、])\s+(.*)$/);
+    if (li) {
+      if (!inList) { html += "<ul class=\"md-ul\">"; inList = true; }
+      html += `<li>${inline(li[1])}</li>`;
+      continue;
+    }
+    closeList();
+    html += `<p class="md-p">${inline(line)}</p>`;
+  }
+  if (inCode) html += "</code></pre>";
+  closeList();
+  return html;
+}
+
+function weeklyRaw() {
+  const el = $("weekly-preview");
+  return el?.dataset?.raw || el?.textContent || "";
+}
+
+function setWeeklyPreview(md, opts = {}) {
+  const el = $("weekly-preview");
+  if (!el) return;
+  const text = String(md ?? "");
+  const path = opts.path ? String(opts.path) : "";
+  el.dataset.raw = text;
+  el.dataset.path = path;
+  el.innerHTML = renderWeeklyMarkdown(text);
+  const meta = $("weekly-meta");
+  if (meta) {
+    const bits = [];
+    if (path) bits.push(path.split(/[\\/]/).pop());
+    if (opts.range) bits.push(opts.range);
+    if (opts.scope) bits.push(opts.scope);
+    meta.textContent = bits.length
+      ? bits.filter(Boolean).join(" · ")
+      : "尚未生成。点「草稿」或「润色」按 开发/办公/健康 出稿";
+  }
+  setMany(["m-weekly-path"], path ? path.split(/[\\/]/).pop() : "");
+  if (opts.selectPath != null) selectWeeklyHistory(opts.selectPath || path);
+}
+
+async function selectWeeklyHistory(path) {
+  const sel = $("weekly-history");
+  if (!sel) return;
+  if (!path) { sel.value = ""; return; }
+  if (![...sel.options].some(o => o.value === path)) {
+    await loadWeeklyHistory().catch(()=>{});
+  }
+  if ([...sel.options].some(o => o.value === path)) sel.value = path;
+}
+
+function weeklyScopeLabel(cfgLike) {
+  const c = cfgLike || lastDash?.config || {};
+  const parts = [];
+  if (c.weekly_scope_dev !== false) parts.push("开发");
+  if (c.weekly_scope_office !== false) parts.push("办公");
+  if (c.weekly_scope_health !== false) parts.push("健康");
+  return parts.length ? parts.join("/") : "未勾选范围";
+}
 function weekdayLabel(dateStr) {
   const d = new Date(dateStr+"T12:00:00");
   return ["一","二","三","四","五","六","日"][d.getDay()===0?6:d.getDay()-1];
@@ -26,6 +123,169 @@ function weekdayLabel(dateStr) {
 function todayKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function dateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
+/* ---- 历史区间预览（并入总览） ---- */
+function rangeBounds(preset) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const fmt = (d) => dateKey(d);
+  if (preset === "week") {
+    const dow = (today.getDay() + 6) % 7;
+    const start = new Date(today); start.setDate(today.getDate() - dow);
+    const end = new Date(start); end.setDate(start.getDate() + 6);
+    return [fmt(start), fmt(end)];
+  }
+  if (preset === "last-week") {
+    const dow = (today.getDay() + 6) % 7;
+    const start = new Date(today); start.setDate(today.getDate() - dow - 7);
+    const end = new Date(start); end.setDate(start.getDate() + 6);
+    return [fmt(start), fmt(end)];
+  }
+  if (preset === "month") {
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    return [fmt(start), fmt(end)];
+  }
+  if (preset === "last-month") {
+    const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const end = new Date(today.getFullYear(), today.getMonth(), 0);
+    return [fmt(start), fmt(end)];
+  }
+  const days = Number(preset) || 7;
+  const start = new Date(today); start.setDate(today.getDate() - (days - 1));
+  return [fmt(start), fmt(today)];
+}
+
+function ensureRangeDefaults() {
+  const s = $("range-start"), e = $("range-end");
+  if (s && !s.value) [s.value, e.value] = rangeBounds("7");
+  return [s?.value || todayKey(), e?.value || todayKey()];
+}
+
+/** 日期轴标签：少则 MM-DD，多则只标关键日，避免换行挤成一团 */
+function dayTickLabel(date, i, n) {
+  const s = String(date || "");
+  const md = s.slice(5);
+  const dd = s.slice(8);
+  if (n <= 10) return md;
+  const step = Math.max(1, Math.ceil(n / 8));
+  if (i === 0 || i === n - 1 || i % step === 0) return dd;
+  return "";
+}
+
+function fmtSecShort(s) {
+  const v = Number(s) || 0;
+  if (v < 60) return v > 0 ? `${v}秒` : "0";
+  return fmtDur2(v);
+}
+
+async function loadRangePreview() {
+  const [start, end] = ensureRangeDefaults();
+  const btn = $("btn-range-load");
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  try {
+    const res = await invoke("get_range_detail", { start, end });
+    renderRangePreview(res);
+  } catch (err) {
+    alert(String(err));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "查询"; }
+  }
+}
+
+function renderRangePreview(res) {
+  if (!res) return;
+  const g = res.git || {};
+  const a = res.activity || {};
+  const inp = res.input || {};
+  const f = res.focus || {};
+  const add = Number(g.additions) || 0, del = Number(g.deletions) || 0;
+  setHtml(["rg-lines"], `<span class="pos">+${add}</span> <span class="neg">−${del}</span>`);
+  setMany(["rg-commits"], String(g.commits || 0));
+  setMany(["rg-confident"], a.confident_label || "—");
+  setMany(["rg-active"], a.active_label || "—");
+  setMany(["rg-sit"], a.max_sit_label || "—");
+  setMany(["rg-away"], `${a.away_gaps || 0} 次`);
+  setMany(["rg-keys"], Number(inp.keys || 0).toLocaleString());
+  setMany(["rg-locks"], String(inp.locks || 0));
+  setMany(["rg-focus"], `${f.focus_blocks || 0}/${f.fragments || 0}`);
+  setMany(["rg-days"], String(res.days || 0));
+  const meta = $("range-meta");
+  if (meta) {
+    const ret = Number(res.retention_days || 0);
+    meta.textContent = `${res.start} ~ ${res.end} · 保留 ${ret === 0 ? "永久" : ret + " 天"}`;
+  }
+  const note = $("rg-note");
+  if (note) {
+    note.textContent = (res.note || "") + (Number(f.wechat_fg_s || 0) > 0 ? ` · 微信前台 ${fmtDur2(f.wechat_fg_s)}` : "");
+  }
+
+  const series = res.series || [];
+  const n = series.length;
+  const codeEl = $("rg-code-bars");
+  if (codeEl) {
+    if (!n) {
+      codeEl.innerHTML = `<div class="ext-empty" style="width:100%">区间内暂无数据</div>`;
+    } else {
+      const maxAdd = Math.max(...series.map((d) => Number(d.additions) || 0), 1);
+      const maxDel = Math.max(...series.map((d) => Number(d.deletions) || 0), 1);
+      codeEl.innerHTML = series.map((d, i) => {
+        const av = Number(d.additions) || 0, dv = Number(d.deletions) || 0;
+        const ah = av ? Math.max(3, Math.round(av / maxAdd * 48)) : 0;
+        const dh = dv ? Math.max(3, Math.round(dv / maxDel * 48)) : 0;
+        const total = av + dv;
+        return `<div class="tcol" title="${escapeHtml(d.date)} +${av}/−${dv}">
+          <span class="tval">${total ? "±" + total : "·"}</span>
+          <div class="ttrack dual">
+            ${ah ? `<div class="tfill posfill" style="height:${ah}%"></div>` : ""}
+            ${dh ? `<div class="tfill negfill" style="height:${dh}%"></div>` : ""}
+          </div>
+          <span class="tlabel">${escapeHtml(dayTickLabel(d.date, i, n))}</span>
+        </div>`;
+      }).join("");
+    }
+  }
+
+  const sitEl = $("rg-sit-bars");
+  if (sitEl) {
+    if (!n) {
+      sitEl.innerHTML = `<div class="ext-empty" style="width:100%">区间内暂无数据</div>`;
+    } else {
+      const maxS = Math.max(...series.map((d) => Math.max(Number(d.confident_s) || 0, Number(d.max_sit_s) || 0)), 1);
+      sitEl.innerHTML = series.map((d, i) => {
+        const conf = Number(d.confident_s) || 0, sit = Number(d.max_sit_s) || 0;
+        const ch = conf ? Math.max(3, Math.round(conf / maxS * 100)) : 0;
+        const sh = sit ? Math.max(3, Math.round(sit / maxS * 100)) : 0;
+        return `<div class="tcol" title="${escapeHtml(d.date)} 高置信 ${fmtDur2(conf)} · 在座 ${fmtDur2(sit)}">
+          <span class="tval">${(conf || sit) ? fmtSecShort(Math.max(conf, sit)) : "·"}</span>
+          <div class="ttrack dual side">
+            ${ch ? `<div class="tfill confill" style="height:${ch}%"></div>` : ""}
+            ${sh ? `<div class="tfill sitfill" style="height:${sh}%"></div>` : ""}
+          </div>
+          <span class="tlabel">${escapeHtml(dayTickLabel(d.date, i, n))}</span>
+        </div>`;
+      }).join("");
+    }
+  }
+
+  const apps = res.apps || [];
+  const appEl = $("rg-apps");
+  if (appEl) {
+    appEl.innerHTML = apps.length ? apps.map((a) => {
+      const max = Number(apps[0]?.seconds) || 1;
+      const pct = Math.max(4, Math.round(Number(a.seconds || 0) / max * 100));
+      const label = Number(a.seconds) < 60 ? fmtSecShort(a.seconds) : (a.label || fmtDur2(a.seconds || 0));
+      return `<div class="app-row">
+        <span class="nm">${escapeHtml(a.name)}</span>
+        <div class="bar"><i style="width:${pct}%"></i></div>
+        <span class="pct">${escapeHtml(label)}</span>
+      </div>`;
+    }).join("") : `<div class="ext-empty">区间内暂无前台记录</div>`;
+  }
 }
 
 /* write helper to both overview + detail ids */
@@ -89,7 +349,7 @@ function render(dash) {
 
   setMany(["m-online"], fmtDur(dash.activity_today?.active_seconds || 0));
   const idle = Number(dash.idle_seconds)||0;
-  const thr = (dash.config?.idle_threshold_minutes||5)*60;
+  const thr = (dash.config?.sit_break_minutes || dash.config?.idle_threshold_minutes || 5)*60;
   const idleEl = $("m-idle");
   // overview streak filled by focus
   if (idleEl) idleEl.textContent = idle < thr ? `活跃 · 空闲 ${fmtDur(idle)}` : `空闲 ${fmtDur(idle)}`;
@@ -221,15 +481,15 @@ async function loadHealthDetail() {
     setMany(["h-today-level"], t.health_level || "");
     setMany(["h-online"], t.confident_label || fmtDurSec(t.confident_s || t.online_s));
     setMany(["h-work"], `离位 ${t.away_gaps ?? 0} 次 · 在线 ${fmtDurSec(t.online_s)}`);
-    setMany(["h-streak"], t.streak_label || fmtDurSec(t.streak_s));
+    setMany(["h-streak"], t.streak_label || sit.label || fmtDurSec(t.streak_s));
     setMany(["h-sit"], sit.alert ? "建议起身" : `阈值 ${sit.threshold_min||45} 分钟`);
     setMany(["h-keys"], t.keys ?? 0);
     setMany(["h-frag"], `碎片 ${t.frag ?? 0} · 专注 ${t.focus_blocks ?? 0}`);
     setMany(["h-locks"], `${t.locks ?? 0} 次`);
     setMany(["h-im"], `通讯 ${t.im_pct ?? 0}%`);
     setMany(["h-sit-msg"], sit.message || "");
-    setMany(["h-sit-state"], sit.alert ? "久坐中" : (sit.streak_s ? "工作中" : "空闲"));
-    setMany(["h-sit-sub"], `高置信 ${t.confident_label||"—"} · 离位 ${t.away_gaps ?? 0} 次`);
+    setMany(["h-sit-state"], sit.alert ? "久坐中" : (sit.streak_s ? "在座中" : "空闲"));
+    setMany(["h-sit-sub"], `连续在座 ${sit.label||"—"} · 工作段 ${t.work_streak_label||"—"} · 离位 ${t.away_gaps ?? 0} 次`);
     const sitCard = $("h-sit-card");
     if (sitCard) sitCard.classList.toggle("alert", !!sit.alert);
     setMany(["h-focus"], `${t.focus_blocks ?? 0} / ${t.frag ?? 0}`);
@@ -351,9 +611,15 @@ function mergeDash(prev, next) {
 async function loadWeeklyPreview() {
   try {
     const res = await invoke("read_weekly");
-    const el = $("weekly-preview");
-    if (!el) return;
-    el.textContent = res.content?.trim() ? res.content.slice(0,5000) : "尚未生成。点「周报草稿」或「润色」";
+    const content = res.content?.trim() ? res.content : "";
+    setWeeklyPreview(content, {
+      path: res.path || res.status?.path || "",
+      range: res.status?.week_start && res.status?.week_end
+        ? `${res.status.week_start} ~ ${res.status.week_end}`
+        : res.status?.week_id,
+      scope: weeklyScopeLabel(),
+      selectPath: content ? (res.path || res.status?.path || "") : "",
+    });
   } catch { /* */ }
 }
 
@@ -388,7 +654,7 @@ async function loadDaily() {
     setMany(["d-clicks","r-clicks"], `鼠标 ${d.clicks ?? 0}`);
     setMany(["d-locks","r-locks"], d.locks ?? 0);
     setMany(["d-unlocks","r-unlocks"], `解锁 ${d.unlocks ?? 0}`);
-    setMany(["d-streak","r-streak"], d.max_streak_label || "—");
+    setMany(["d-streak","r-streak"], d.streak_label || d.max_streak_label || "—");
     setMany(["d-work","r-work"], `累计 ${d.work_label || "—"}`);
   } catch {}
 }
@@ -489,7 +755,7 @@ async function refresh(opts = {}) {
     $("boot-overlay")?.classList.add("hidden");
   }
 
-  await Promise.allSettled([loadTrend(), loadDaily(), loadFocus(), loadHealth(false)]);
+  await Promise.allSettled([loadTrend(), loadDaily(), loadFocus(), loadHealth(false), loadRangePreview()]);
   if (mode === "code") loadDevDetail().catch(()=>{});
 }
 
@@ -516,6 +782,8 @@ function openConfig(cfg) {
   $("cfg-max").value = cfg.scan_max_repos ?? 40;
   $("cfg-idle").value = cfg.idle_threshold_minutes ?? 5;
   $("cfg-poll").value = cfg.activity_poll_seconds ?? 60;
+  if ($("cfg-sit-break")) $("cfg-sit-break").value = cfg.sit_break_minutes ?? 6;
+  if ($("cfg-retention")) $("cfg-retention").value = cfg.metrics_retention_days ?? 0;
   syncWidgetUi(cfg.widget_enabled !== false);
   if ($("cfg-remind")) $("cfg-remind").checked = cfg.daily_reminder !== false;
   if ($("cfg-remind-h")) $("cfg-remind-h").value = cfg.remind_hour ?? 18;
@@ -635,6 +903,8 @@ async function saveConfigFromForm() {
     scan_max_repos: Number($("cfg-max").value)||40,
     idle_threshold_minutes: Number($("cfg-idle").value)||5,
     activity_poll_seconds: Math.max(15, Number($("cfg-poll").value)||60),
+    sit_break_minutes: Math.max(3, Number($("cfg-sit-break")?.value)||6),
+    metrics_retention_days: Math.max(0, Number($("cfg-retention")?.value)||0),
     // 运行时字段从上一次配置保留，避免设置保存把挂件位置等冲掉
     weekly_dir: prev?.weekly_dir || "weekly",
     data_dir: prev?.data_dir || "data",
@@ -797,14 +1067,31 @@ $("gig-body")?.addEventListener("click", async (e)=>{
 });
 
 /* events */
+async function applyWeeklyResult(res, label) {
+  const path = res.path || res.status?.path || "";
+  const content = res.content || "";
+  setWeeklyPreview(content, {
+    path,
+    range: res.status?.week_start && res.status?.week_end
+      ? `${res.status.week_start} ~ ${res.status.week_end}`
+      : undefined,
+    scope: weeklyScopeLabel(),
+    selectPath: path,
+  });
+  const pill = $("m-weekly");
+  if (pill) pill.textContent = label || (path.includes("润色") ? "已润色" : "草稿已生成");
+  await loadWeeklyHistory(path).catch(()=>{});
+  await selectWeeklyHistory(path);
+}
+
 $("btn-refresh").addEventListener("click", ()=>refresh());
 $("btn-weekly").addEventListener("click", async ()=>{
   const btn = $("btn-weekly");
   btn.disabled = true; btn.textContent = "生成中…";
   try {
     const res = await invoke("generate_weekly");
-    $("weekly-preview").textContent = res.content || "";
-    await refresh();
+    setMode("code");
+    await applyWeeklyResult(res, "草稿已生成");
   } catch (e) { alert(String(e)); }
   finally { btn.disabled = false; btn.textContent = "周报草稿"; }
 });
@@ -817,8 +1104,7 @@ $("btn-weekly-draft")?.addEventListener("click", async ()=>{
   if (btn) { btn.disabled = true; btn.textContent = "生成中…"; }
   try {
     const res = await invoke("generate_weekly");
-    $("weekly-preview").textContent = res.content || "";
-    await loadWeeklyHistory().catch(()=>{});
+    await applyWeeklyResult(res, "草稿已生成");
   } catch (e) { alert(String(e)); }
   finally { if (btn) { btn.disabled = false; btn.textContent = "草稿"; } }
 });
@@ -827,34 +1113,50 @@ $("btn-polish")?.addEventListener("click", async ()=>{
   btn.disabled = true; btn.textContent = "润色中…";
   try {
     const res = await invoke("polish_weekly");
-    $("weekly-preview").textContent = res.content || "";
-    setMany(["m-weekly-path"], (res.path||"").split(/[\\/]/).pop());
+    await applyWeeklyResult(res, "已润色");
   } catch (e) { alert(String(e)); }
   finally { btn.disabled = false; btn.textContent = "润色"; }
 });
 $("btn-copy-weekly")?.addEventListener("click", async ()=>{
-  const text = $("weekly-preview")?.textContent || "";
+  const text = weeklyRaw();
   if (!text || text.includes("尚未生成")) { alert("还没有周报内容"); return; }
   try { await navigator.clipboard.writeText(text); alert("已复制到剪贴板"); }
   catch { alert("复制失败"); }
 });
 $("btn-export-weekly")?.addEventListener("click", async ()=>{
-  const text = $("weekly-preview")?.textContent || "";
+  const text = weeklyRaw();
   if (!text || text.includes("尚未生成")) { alert("还没有周报内容"); return; }
-  const name = ($("weekly-history")?.selectedOptions?.[0]?.textContent || "周报").replace(/[\\/:*?"<>|]/g,"_");
+  const path = $("weekly-history")?.value || $("m-weekly-path")?.textContent || "周报";
+  const base = String(path).split(/[\\/]/).pop() || "周报";
+  const name = base.replace(/[\\/:*?"<>|]/g,"_");
   const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = name.endsWith(".md") ? name : `${name}.md`;
+  a.download = name.toLowerCase().endsWith(".md") ? name : `${name}.md`;
   a.click();
   URL.revokeObjectURL(a.href);
 });
+$("btn-open-weekly")?.addEventListener("click", async ()=>{
+  let openP = $("weekly-history")?.value || $("weekly-preview")?.dataset?.path || "";
+  if (!openP) {
+    try {
+      const res = await invoke("read_weekly");
+      openP = res.path || "";
+    } catch {}
+  }
+  if (!openP) { alert("还没有周报文件"); return; }
+  try { await invoke("open_path", { path: openP }); }
+  catch (e) { alert(String(e)); }
+});
 $("weekly-history")?.addEventListener("change", async (e)=>{
   const path = e.target.value;
-  if (!path) return;
+  if (!path) {
+    try { await loadWeeklyPreview(); } catch {}
+    return;
+  }
   try {
     const content = await invoke("read_weekly_file", { path });
-    $("weekly-preview").textContent = content || "（空文件）";
+    setWeeklyPreview(content || "（空文件）", { path, selectPath: path, scope: weeklyScopeLabel() });
   } catch (err) { alert(String(err)); }
 });
 
@@ -984,6 +1286,7 @@ async function loadSlack() {
       mpS>0 ? `公众号约 ${d.wechat_mp_label||fmtDur2(mpS)}` : null,
       fgS>0 ? `微信前台 ${d.wechat_fg_label||fmtDur2(fgS)}` : null,
       d.music_s>0 ? `听歌 ${d.music_label||fmtDur2(d.music_s)}` : null,
+      Number(d.browser_leisure_s||0)>0 ? `浏览器休闲站 ${d.browser_leisure_label||fmtDur2(d.browser_leisure_s)}` : null,
     ].filter(Boolean).join(" · ") || "今日暂无可量化的摸鱼时长");
 
     const items = [
@@ -1021,7 +1324,7 @@ async function loadSlack() {
   }
 }
 
-async function loadWeeklyHistory() {
+async function loadWeeklyHistory(preferPath) {
   const sel = $("weekly-history");
   if (!sel) return;
   try {
@@ -1030,12 +1333,12 @@ async function loadWeeklyHistory() {
       sel.innerHTML = `<option value="">暂无历史周报</option>`;
       return;
     }
-    const prev = sel.value;
+    const prev = preferPath || sel.value;
     sel.innerHTML = `<option value="">当前草稿</option>` + items.map((it)=>{
       const label = `${it.name}${it.polished?" · 润色":""} · ${it.modified||""}`;
       return `<option value="${escapeHtml(it.path)}">${escapeHtml(label)}</option>`;
     }).join("");
-    if (prev) sel.value = prev;
+    if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
   } catch (e) {
     sel.innerHTML = `<option value="">历史加载失败</option>`;
   }
@@ -1044,6 +1347,23 @@ async function loadWeeklyHistory() {
 $("btn-open-log")?.addEventListener("click", async ()=>{
   try { await invoke("open_log"); } catch (e) { alert(String(e)); }
 });
+/* 历史区间（总览内） */
+document.querySelectorAll(".range-preset").forEach((btn)=>{
+  btn.addEventListener("click", ()=>{
+    document.querySelectorAll(".range-preset").forEach((b)=>b.classList.remove("primary"));
+    btn.classList.add("primary");
+    const [s, e] = btn.dataset.preset
+      ? rangeBounds(btn.dataset.preset)
+      : rangeBounds(btn.dataset.days || "7");
+    const se = $("range-start"), ee = $("range-end");
+    if (se) se.value = s;
+    if (ee) ee.value = e;
+    loadRangePreview().catch(()=>{});
+  });
+});
+$("btn-range-load")?.addEventListener("click", ()=>loadRangePreview().catch(()=>{}));
+$("range-start")?.addEventListener("change", ()=>loadRangePreview().catch(()=>{}));
+$("range-end")?.addEventListener("change", ()=>loadRangePreview().catch(()=>{}));
 $("btn-health")?.addEventListener("click", ()=>loadHealth(false));
 $("btn-health-llm")?.addEventListener("click", ()=>loadHealth(true));
 $("btn-health-llm-2")?.addEventListener("click", ()=>loadHealth(true, "-2"));

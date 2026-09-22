@@ -48,13 +48,30 @@ fn today() -> String {
 }
 
 pub fn load_log() -> MetricsLog {
-    std::fs::read_to_string(metrics_path())
+    let days = crate::metrics_db::load_kind::<DailyMetrics>("daily");
+    if !days.is_empty() {
+        let mut map = BTreeMap::new();
+        for (k, v) in days {
+            map.insert(k, v);
+        }
+        return MetricsLog { days: map };
+    }
+    let mut log: MetricsLog = std::fs::read_to_string(metrics_path())
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    for (date, day) in log.days.iter_mut() {
+        if day.date.is_empty() {
+            day.date = date.clone();
+        }
+    }
+    log
 }
 
 fn save_log(log: &MetricsLog) {
+    for (date, day) in &log.days {
+        crate::metrics_db::upsert_day("daily", date, day);
+    }
     if let Some(p) = metrics_path().parent() {
         let _ = std::fs::create_dir_all(p);
     }
@@ -115,19 +132,33 @@ pub fn current() -> DailyMetrics {
     current_inner()
 }
 
+/// Session locked / screensaver heuristics (updated by streak tracker).
+pub fn session_locked() -> bool {
+    IS_LOCKED.load(Ordering::Relaxed) != 0
+}
+
+/// 在座断开阈值（秒）：max(sit_break_minutes, idle_threshold, 5) 分钟；锁屏另计。
+pub fn sit_break_seconds() -> u64 {
+    let cfg = crate::config::load_config();
+    cfg.sit_break_minutes
+        .max(cfg.idle_threshold_minutes)
+        .max(5)
+        * 60
+}
+
 /// Fold session counters into disk, then clear session deltas.
 pub fn persist() {
     reset_session_if_new_day();
     let cur = current_inner();
-    let mut log = load_log();
-    log.days.insert(cur.date.clone(), cur);
-    if log.days.len() > 60 {
-        let keys: Vec<String> = log.days.keys().cloned().collect();
-        for k in keys.into_iter().take(log.days.len() - 60) {
-            log.days.remove(&k);
-        }
-    }
-    save_log(&log);
+    // 增量：只 UPSERT 今日
+    crate::metrics_db::upsert_day("daily", &cur.date, &cur);
+    save_log(&MetricsLog {
+        days: {
+            let mut m = load_log().days;
+            m.insert(cur.date.clone(), cur);
+            m
+        },
+    });
     KEY_COUNT.store(0, Ordering::Relaxed);
     CLICK_COUNT.store(0, Ordering::Relaxed);
 }
@@ -140,6 +171,13 @@ pub fn last_n(n: usize) -> Vec<DailyMetrics> {
     } else {
         all
     }
+}
+
+pub fn range_days(start: &str, end: &str) -> Vec<DailyMetrics> {
+    crate::metrics_db::load_range::<DailyMetrics>("daily", start, end)
+        .into_iter()
+        .map(|(_, v)| v)
+        .collect()
 }
 
 fn idle_seconds() -> u64 {
@@ -247,10 +285,6 @@ fn start_keyboard_hook() {}
 /// Poll lock state via session / screensaver heuristics + maintain streak.
 fn start_streak_tracker() {
     std::thread::spawn(move || {
-        let idle_thresh = {
-            let cfg = crate::config::load_config();
-            cfg.idle_threshold_minutes.max(1) * 60
-        };
         let mut last_active = Instant::now();
         let mut current_streak = 0u64;
         let mut locked = false;
@@ -259,15 +293,17 @@ fn start_streak_tracker() {
 
         loop {
             reset_session_if_new_day();
+            let sit_break = sit_break_seconds();
             let idle = idle_seconds();
-            let active = idle < idle_thresh && IS_LOCKED.load(Ordering::Relaxed) == 0;
+            let is_locked = IS_LOCKED.load(Ordering::Relaxed) != 0;
+            // 在座：未锁屏且 idle 未超过在座断开阈值（读屏短空闲不断开）
+            let sitting = !is_locked && idle < sit_break;
 
-            if active {
+            if sitting {
                 current_streak += 2;
                 STREAK_SECS.fetch_max(current_streak, Ordering::Relaxed);
                 last_active = Instant::now();
-            } else if idle >= idle_thresh {
-                // broken by idle
+            } else {
                 current_streak = 0;
             }
 

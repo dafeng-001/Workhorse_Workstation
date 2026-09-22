@@ -4,7 +4,7 @@
 > **同步要求**：任何修改统计/采样/公式/UI 口径的代码变更，**必须在同一次提交里更新本文件**（改代码不改文档视为不完整）。  
 > 源码对照：`personal-workbench/src-tauri/src/`。
 
-**最近更新**：2026-09-20 · 健康 v2（高置信/离位/连续健康分）
+**最近更新**：2026-09-21 · 指标 SQLite 增量落盘 + 可配置保留（默认永久）
 
 ---
 
@@ -18,6 +18,9 @@
 | 趋势与 KPI | 同一 git 口径；`history.json` 可按近 7 天 git 回填 |
 | 摸鱼 | **不写入周报**；仅本机参考 |
 | 数据位置 | 便携目录：`config.json`、`data/`、`weekly/` |
+| **指标落盘** | **`data/metrics.sqlite`**（SQLite，按 `kind+date` UPSERT 增量）；旧 JSON 保留作镜像/备份 |
+| **保留策略** | `metrics_retention_days`：**0 = 永久**（默认）；N = 只保留最近 N 天；不再写死 60 天截断 |
+| 日表 kind | `activity` / `daily` / `focus` / `history`；区间预览接口 `get_range_detail(start,end)` |
 
 **主要代码文件**
 
@@ -93,26 +96,28 @@ effective_repos（扫描 + 手动路径）
 
 | 指标 | 规则 |
 |------|------|
-| 在线（低置信） | `idle < idle_threshold_minutes`（默认 5）→ 计入 `active_seconds`；含视频/挂机 |
-| **高置信在机** | `idle < 3 分钟`，**或** `idle < 阈值` 且本采样周期键鼠有增加 → `confident_seconds` |
-| **最长连续** | 仅高置信活跃累加 `current_streak`；断开时 `max_streak` **保留历史最大**（修复断开清零丢失） |
+| 在线（低置信） | `idle < idle_threshold_minutes`（默认 5）且未锁屏 → 计入 `active_seconds`；含视频/挂机 |
+| **高置信在机** | 未锁屏，且（`idle < 3 分钟`，**或** `idle < 空闲阈值` 且键盘/点击/鼠标位移有增加）→ `confident_seconds` |
+| **连续在座（久坐主指标）** | 未锁屏 **且** `idle < 在座断开阈值`（`sit_break_minutes`，默认 6，且 ≥ max(空闲阈值, 5)）→ `sit_streak_seconds` 累加；**读屏/思考短空闲不断开** |
+| | 断开条件：**锁屏**，或 `idle ≥ 在座断开阈值`；`max_sit_streak_seconds` 保留当日历史最大 |
+| **工作连续（副指标）** | 仅高置信累加 `current_streak`；未高置信但仍在座时**冻结不清零**；离座/锁屏才清零；`max_streak` 不丢 max |
 | **离位** | `idle` 落入 **[3, 20) 分钟** 记离位：`away_gaps+1`（进入区间计一次）、`away_seconds` 累加采样时长；锁屏仍单独计数 |
-| 键盘 / 锁屏 | Windows 钩子 → `daily_metrics.json` |
+| 键盘 / 点击 | Windows 钩子 → `daily_metrics.json`（keys / clicks） |
 | 鼠标距离 | 位移像素累计；**1px≈0.264mm（96DPI）**；`km = px × 0.000264 / 1e6`；会话像素**跨天清零** |
 | 专注 / 碎片 | 键盘间隙分析（focus） |
 | **跨天复位** | daily/focus 会话原子量（streak、键鼠、微信等）在**自然日变更时清零**，避免凌晨后仍显示昨日长连续 |
 | **健康分 v2** | 连续计分（`formula: health-v2-continuous`），非阶梯一刀切： |
 | | 基准 **100** |
-| | 久坐：`(最长连续h − 1) × 10`，封顶 **−25** |
+| | 久坐：以 **连续在座** 为主，`(最长连续在座h − 1) × 10`，封顶 **−25** |
 | | 在机：`(高置信h − 6.5) × 6`，封顶 **−18** |
 | | 离位不足：高置信 ≥4h 时，期望约 `高置信h/1.5` 次；`max(away_gaps, locks)` 低于期望则按差 ×3 扣分（封顶 −12）；离位充足且在机 ≥4h 可 **+3** |
 | | 键入密度过高且无离位：`keys/高置信h > 2200` 且 away=0 → **−8** |
 | | 在机虚高：`在线 > 高置信+2h` 且在线 >4h → **−4**（挂机/视频可能） |
 | | 结果夹取 **40–98**；等级：≥88 良好 / ≥75 一般 / ≥62 偏累 / 其余 注意休息 |
-| 久坐提醒 | 高置信最长连续 ≥ `max(空闲阈值, 45 分钟)` 时托盘提醒 |
-| 周报健康章 | 使用高置信/离位等新字段（有则优先） |
+| 久坐提醒 | **连续在座** ≥ `max(idle阈值, 45 分钟, sit_break)` 时托盘提醒；UI 健康页显示「连续在座」 |
+| 周报健康章 | 使用高置信 / **连续在座** / 离位等新字段（有则优先） |
 
-**同步义务**：修改 `activity.rs` / `health.rs` 口径时，必须更新本节与 §9 变更记录。
+**同步义务**：修改 `activity.rs` / `health.rs` / `daily.rs` 在座与健康口径时，必须更新本节与 §9 变更记录。
 
 ---
 
@@ -121,15 +126,20 @@ effective_repos（扫描 + 手动路径）
 | 指标 | 规则 |
 |------|------|
 | 工作日基准 | 8h = **28800s** |
-| 有效工作 | 与日常工作/在线对齐后的当日工作秒 |
+| 有效工作 | 优先 **高置信在机**，并与 daily 工作秒/连续取较大 |
 | **8h 未工作比例** | `(28800 − min(有效工作, 28800)) / 28800` |
-| 摸鱼合计 | 前台**非工作类**应用时长为主；UI 不展示缓存命中/路径等技术细节 |
-| 不计摸鱼 | IDE/终端/文件管理/Office/数据库/工作台、**浏览器**（Chrome/Edge/Firefox） |
-| 听歌关键字 | cloudmusic、qqmusic、spotify、kugou、kuwo、foobar、aimp、musicbee、网易云/酷狗/QQ音乐、**soda music / 汽水音乐 / qishui / luna.music** |
-| 视频 / 游戏 / 通讯 | bilibili、youku、iqiyi、potplayer…；steam、valorant、原神…；wechat、qq、dingtalk… |
+| 摸鱼合计 | 前台**休闲类**应用时长；与「在线−工作」侧取更能代表的一方展示，不重复加总 |
+| 前台采样 | 每 3s 记进程名；`seconds = ticks × 3` |
+| 不计摸鱼 | IDE/终端/文件管理/Office/数据库/工作台、系统壳进程、**工作 IM**（钉钉/飞书/Teams/企业微信）、**浏览器进程本身** |
+| 听歌关键字 | cloudmusic、netease、qqmusic、spotify、kugou、kuwo、foobar、aimp、musicbee、网易云/酷狗/QQ音乐、汽水音乐/soda/qishui/luna 等 |
+| 视频 / 游戏 / 个人聊天 | bilibili/抖音/虎牙…；steam/原神…；wechat/qq/tim/telegram/discord（**不含**工作 IM） |
+| 浏览器标题粗估 | 进程为浏览器且**窗口标题**含视频/音乐/游戏站点关键字 → 按站点计入对应摸鱼类；标题无法读到或未命中则**浏览器整体不计摸鱼** |
 | 微信前台 | 进程名含 wechat/weixin/微信 → 每 5s 计入前台秒 |
 | 公众号阅读（粗估） | 微信前台 **且**（标题含公众号/mp.weixin **或** 近 90s 内 mp.weixin 缓存 mtime 更新）→ +5s |
 | 公众号缓存 | 仅探测 `xwechat` WebView 缓存标记与 mtime，**不解析正文** |
+| UI | 不展示缓存命中路径等技术细节；摸鱼**禁止写入周报** |
+
+**同步义务**：修改 `slack.rs` / `focus.rs` 前台采样与分类时，必须更新本节与 §9。
 
 ---
 
@@ -138,11 +148,18 @@ effective_repos（扫描 + 手动路径）
 | 项 | 规则 |
 |----|------|
 | 范围开关 | `weekly_scope_dev` / `weekly_scope_office` / `weekly_scope_health` |
-| 开发章 | 本周 git ±行、提交、未提交；提交按 feat/fix/… 或中文关键词归类 |
+| 开发章 | 本周 git ±行、提交、未提交；提交按 feat/fix/… 或中文关键词归类（新增/实现/更新/补充/完善/调整/逻辑 → 功能；优化/重构 → 优化；修复/修正 → 修复） |
 | 办公章 | 本周办公文档量、目录、类型、最近文档 |
-| 健康章 | 本周在线、工作/连续、健康分、专注碎片 |
+| 健康章 | 本周**高置信在机**、在线、最长连续、离位次数；今日健康分/节奏（v2 字段优先） |
+| 草稿写盘 | 「草稿」**每次覆盖**本周 `{week_id}.md`；不再因旧文件存在而跳过写入 |
+| 润色写盘 | 写入 `{week_id}-润色.md`；无数据的已启用章节整节不出现 |
+| 手写保留 | 重新生成时，若旧文件「下周计划 / 风险与依赖」已有实质内容，则原样保留（占位句不保留） |
+| 未提交清单 | porcelain + `core.quotepath=false` + 八进制解码；每仓最多预览 12 条，超出显示「…共 N 条」 |
 | 裁剪 | 未启用范围**整节不出现**；章节序号顺延 |
 | 摸鱼 | **禁止写入周报** |
+| 面板预览 | 开发页周报面板渲染轻量 Markdown；复制/导出使用原始 Markdown 文本 |
+
+**同步义务**：修改 `weekly.rs` 输出结构或归类/保留规则时，必须更新本节与 §9。
 
 ---
 
@@ -155,7 +172,8 @@ effective_repos（扫描 + 手动路径）
 | `scan_roots` / `repos` / `scan_max_depth` / `exclude_dirs` | 纳入统计的仓库 |
 | `weekly_repos` | 周报仓库范围（空=全部扫描结果） |
 | `weekly_scope_*` | 周报章节开关 |
-| `idle_threshold_minutes` / `activity_poll_seconds` | 在线、工作、久坐、健康分 |
+| `idle_threshold_minutes` / `activity_poll_seconds` / **`sit_break_minutes`** | 在线、高置信、**连续在座**、久坐提醒、健康分 |
+| **`metrics_retention_days`** | 本地指标日表保留天数（**0=永久**） |
 | `daily_reminder` / `remind_hour` / `dirty_warn_threshold` | 托盘提醒 |
 
 ---
@@ -180,3 +198,7 @@ effective_repos（扫描 + 手动路径）
 | 2026-09-20 | 首次落地 | 按开发/办公/健康/摸鱼/周报/扫描整理口径，与已推送源码对齐 |
 | 2026-09-20 | 健康 v2 | 高置信在机、离位 gap、连续段 max 不丢失、健康分连续公式（1+2） |
 | 2026-09-20 | 健康修正 | 跨天清零 streak/键鼠/微信会话量；鼠标 km 单位修正 |
+| 2026-09-21 | 周报体验 | 草稿覆盖写盘；保留手写计划/风险；健康章用高置信/离位；中文提交归类扩展；未提交路径解码预览；面板 MD 渲染 |
+| 2026-09-21 | 连续在座 v3 | 新增 `sit_streak`/`max_sit_streak`；在座断开 `sit_break_minutes`（默认 6，读屏不断开）；高置信含点击/鼠标；工作段冻结；久坐提醒与健康分改用连续在座 |
+| 2026-09-21 | 摸鱼分类 | 前台改存进程名（tick×3s）；IDE/工作 IM/系统壳不计摸鱼；浏览器标题命中休闲站才计入；关键字扩充 |
+| 2026-09-21 | 指标落盘 | `metrics.sqlite` 按日 UPSERT；旧 JSON 迁移；`metrics_retention_days` 默认 0=永久；去掉 60 天硬截断 |

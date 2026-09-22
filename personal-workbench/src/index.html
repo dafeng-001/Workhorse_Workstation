@@ -132,6 +132,62 @@
           <p class="hint path" id="h-source"></p>
         </section>
       </div>
+
+      <!-- 历史区间：并入总览（回放任意时间段） -->
+      <section class="panel range-panel">
+        <header class="panel-head">
+          <h2>历史区间 · 工作回放</h2>
+          <div class="row-actions">
+            <button type="button" class="btn sm range-preset primary" data-days="7">近 7 天</button>
+            <button type="button" class="btn sm range-preset" data-days="30">近 30 天</button>
+            <button type="button" class="btn sm range-preset" data-preset="week">本周</button>
+            <button type="button" class="btn sm range-preset" data-preset="last-week">上周</button>
+            <button type="button" class="btn sm range-preset" data-preset="month">本月</button>
+            <button type="button" class="btn sm range-preset" data-preset="last-month">上月</button>
+          </div>
+        </header>
+        <div class="range-controls">
+          <label>起 <input type="date" id="range-start" class="inline-input" /></label>
+          <label>止 <input type="date" id="range-end" class="inline-input" /></label>
+          <button type="button" id="btn-range-load" class="btn primary sm">查询</button>
+          <span class="hint" id="range-meta">默认近 7 天 · 数据本地 metrics.sqlite</span>
+        </div>
+        <div class="range-chips" id="rg-chips">
+          <span class="chip">代码 <b id="rg-lines">—</b></span>
+          <span class="chip">提交 <b id="rg-commits">—</b></span>
+          <span class="chip">高置信 <b id="rg-confident">—</b></span>
+          <span class="chip">在线 <b id="rg-active">—</b></span>
+          <span class="chip">连续在座 <b id="rg-sit">—</b></span>
+          <span class="chip">离位 <b id="rg-away">—</b></span>
+          <span class="chip">键入 <b id="rg-keys">—</b></span>
+          <span class="chip">锁屏 <b id="rg-locks">—</b></span>
+          <span class="chip">专注/碎片 <b id="rg-focus">—</b></span>
+          <span class="chip">有数据 <b id="rg-days">—</b></span>
+        </div>
+        <div class="grid-2 range-charts">
+          <section class="panel inner">
+            <header class="panel-head">
+              <h2>按日代码量</h2>
+              <span class="hint"><i class="sw pos"></i>+行 <i class="sw neg"></i>−行</span>
+            </header>
+            <div id="rg-code-bars" class="trend-row"></div>
+          </section>
+          <section class="panel inner">
+            <header class="panel-head">
+              <h2>按日在机 / 在座</h2>
+              <span class="hint"><i class="sw conf"></i>高置信 <i class="sw sit"></i>最长连续在座</span>
+            </header>
+            <div id="rg-sit-bars" class="trend-row"></div>
+          </section>
+        </div>
+        <div class="range-foot">
+          <div class="range-apps">
+            <span class="dl">区间前台 Top</span>
+            <div id="rg-apps" class="app-list"></div>
+          </div>
+          <p class="hint" id="rg-note">区间汇总来自本地日表；代码行数可在无记录时从 git 现算。</p>
+        </div>
+      </section>
     </section>
 
     <!-- ============ 开发范围 ============ -->
@@ -214,13 +270,15 @@
                 <button type="button" id="btn-polish" class="btn primary sm">润色</button>
                 <button type="button" id="btn-copy-weekly" class="btn sm">复制</button>
                 <button type="button" id="btn-export-weekly" class="btn sm ghost">导出</button>
+                <button type="button" id="btn-open-weekly" class="btn sm ghost" title="打开周报文件">打开</button>
               </div>
             </header>
             <div class="weekly-history-row">
               <label class="hint" for="weekly-history">历史</label>
               <select id="weekly-history" class="select"></select>
             </div>
-            <pre id="weekly-preview" class="preview">尚未生成。点「草稿」或「润色」按 开发/办公/健康 出稿</pre>
+            <p class="hint weekly-meta" id="weekly-meta">尚未生成。点「草稿」或「润色」按 开发/办公/健康 出稿</p>
+            <div id="weekly-preview" class="preview weekly-md" data-raw="">尚未生成。点「草稿」或「润色」按 开发/办公/健康 出稿</div>
           </section>
         </aside>
       </div>
@@ -577,6 +635,12 @@
               <label>空闲阈值（分钟） <input id="cfg-idle" type="number" min="1" max="120" /></label>
               <label>采样间隔（秒） <input id="cfg-poll" type="number" min="15" max="600" /></label>
             </div>
+            <div class="row two">
+              <label>在座断开（分钟） <input id="cfg-sit-break" type="number" min="3" max="30" /></label>
+              <label>数据保留（天） <input id="cfg-retention" type="number" min="0" max="3650" /></label>
+            </div>
+            <p class="hint">连续在座：未锁屏且空闲未超过「在座断开」时持续计时（读屏/思考不断开）；锁屏或空闲超时才打断。默认 6 分钟，且不小于空闲阈值。</p>
+            <p class="hint">数据保留：指标写入本地 <code>data/metrics.sqlite</code>（按日增量）。填 <strong>0 = 永久保存</strong>（默认）；填 N 表示只保留最近 N 天。</p>
             <label class="check"><input type="checkbox" id="cfg-weekly-health" checked /> 健康范围写入周报（在线/健康分/节奏）</label>
           </div>
 

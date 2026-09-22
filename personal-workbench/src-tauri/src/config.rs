@@ -17,6 +17,12 @@ pub struct Config {
     pub idle_threshold_minutes: u64,
     #[serde(default = "default_poll")]
     pub activity_poll_seconds: u64,
+    /// 在座断开阈值（分钟）：idle 超过此值或锁屏才打断「连续在座」；读屏/思考短空闲不断开
+    #[serde(default = "default_sit_break")]
+    pub sit_break_minutes: u64,
+    /// 指标本地保留天数：**0 = 永久保存**（默认）；N = 保留最近 N 天
+    #[serde(default)]
+    pub metrics_retention_days: u64,
     #[serde(default = "default_weekly_dir")]
     pub weekly_dir: String,
     #[serde(default = "default_data_dir")]
@@ -77,6 +83,10 @@ pub struct Config {
 fn default_true() -> bool {
     true
 }
+
+fn default_sit_break() -> u64 {
+    6
+}
 fn default_scan_depth() -> u32 {
     4
 }
@@ -130,6 +140,8 @@ impl Default for Config {
             scan_max_repos: default_scan_repos(),
             idle_threshold_minutes: default_idle(),
             activity_poll_seconds: default_poll(),
+            sit_break_minutes: default_sit_break(),
+            metrics_retention_days: 0,
             weekly_dir: default_weekly_dir(),
             data_dir: default_data_dir(),
             widget_enabled: true,

@@ -679,7 +679,7 @@ pub fn week_range_label(now: DateTime<Local>) -> (String, String, String) {
 
 /// 按日聚合近 N 天代码行数（与今日/周 KPI 同一扩展名 + 作者过滤）。
 pub fn collect_daily_lines_last_n(cfg: &Config, n: usize) -> Vec<(String, i64, i64, u32)> {
-    let n = n.clamp(1, 30);
+    let n = n.clamp(1, 365);
     let now = Local::now();
     let start = now - chrono::Duration::days(n as i64);
     let after = format!("{}T00:00:00", start.date_naive());

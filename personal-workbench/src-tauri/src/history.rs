@@ -23,6 +23,10 @@ fn path() -> PathBuf {
 }
 
 pub fn load() -> History {
+    let days = crate::metrics_db::load_kind::<DaySample>("history");
+    if !days.is_empty() {
+        return History { days };
+    }
     std::fs::read_to_string(path())
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
@@ -30,6 +34,9 @@ pub fn load() -> History {
 }
 
 fn save(h: &History) {
+    for (date, day) in &h.days {
+        crate::metrics_db::upsert_day("history", date, day);
+    }
     if let Some(p) = path().parent() {
         let _ = std::fs::create_dir_all(p);
     }
@@ -61,13 +68,9 @@ pub fn record_today(sample: DaySample) {
             s.dirty = old.dirty;
         }
     }
+    crate::metrics_db::upsert_day("history", &s.date, &s);
     h.days.insert(s.date.clone(), s);
-    if h.days.len() > 60 {
-        let keys: Vec<String> = h.days.keys().cloned().collect();
-        for k in keys.into_iter().take(h.days.len() - 60) {
-            h.days.remove(&k);
-        }
-    }
+    // 不再按 60 天截断；保留策略见 config.metrics_retention_days
     save(&h);
 }
 
@@ -90,13 +93,8 @@ pub fn backfill_from_git(cfg: &crate::config::Config, n: usize) {
                 e.commits = commits;
             }
         }
-        e.date = date;
-    }
-    if h.days.len() > 60 {
-        let keys: Vec<String> = h.days.keys().cloned().collect();
-        for k in keys.into_iter().take(h.days.len() - 60) {
-            h.days.remove(&k);
-        }
+        e.date = date.clone();
+        crate::metrics_db::upsert_day("history", &date, e);
     }
     save(&h);
 }
@@ -110,4 +108,11 @@ pub fn last_n(n: usize) -> Vec<DaySample> {
     } else {
         all
     }
+}
+
+pub fn range_days(start: &str, end: &str) -> Vec<DaySample> {
+    crate::metrics_db::load_range::<DaySample>("history", start, end)
+        .into_iter()
+        .map(|(_, v)| v)
+        .collect()
 }

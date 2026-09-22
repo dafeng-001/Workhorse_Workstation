@@ -21,19 +21,23 @@ pub struct HealthReport {
     pub away_hours: f64,
 }
 
-/// 连续健康分（v2）：以高置信在机、最长连续、离位次数为主，避免阶梯式一刀切。
+/// 连续健康分（v2）：以高置信在机、**连续在座**、离位次数为主，避免阶梯式一刀切。
 /// 口径见 CALC.md §4；改公式必须同步该文档。
 pub fn evaluate_rules() -> HealthReport {
     let today = daily::current();
     let hist = daily::last_n(7);
-    let act = activity::today(&crate::config::data_dir(&crate::config::load_config()));
+    let data = crate::config::data_dir(&crate::config::load_config());
+    let act = activity::today(&data);
 
     let confident_h = (act.confident_seconds.max(0) as f64) / 3600.0;
     let loose_h = (act.active_seconds.max(0) as f64) / 3600.0;
-    let streak_h = (act
-        .max_streak_seconds
-        .max(today.max_streak_seconds) as f64)
-        / 3600.0;
+    // 久坐主指标 = 连续在座（读屏不断开）；兼容旧字段 max_streak / daily
+    let streak_s = act
+        .max_sit_streak_seconds
+        .max(act.sit_streak_seconds)
+        .max(act.max_streak_seconds)
+        .max(today.max_streak_seconds);
+    let streak_h = (streak_s as f64) / 3600.0;
     let away_gaps = act.away_gaps;
     let away_h = (act.away_seconds as f64) / 3600.0;
 
@@ -41,13 +45,13 @@ pub fn evaluate_rules() -> HealthReport {
     let mut tips: Vec<String> = Vec::new();
     let mut signals: Vec<String> = Vec::new();
 
-    // 1) 久坐：从约 1h 连续开始连续扣分，封顶约 25
+    // 1) 久坐：以连续在座为主，从约 1h 起连续扣分，封顶约 25
     if streak_h > 1.0 {
         let p = ((streak_h - 1.0) * 10.0).min(25.0);
         score -= p;
-        signals.push(format!("最长连续高置信 {:.1}h", streak_h));
+        signals.push(format!("最长连续在座 {:.1}h", streak_h));
         if streak_h >= 2.0 {
-            tips.push("连续工作偏长，建议每 45–60 分钟起身 3–5 分钟。".into());
+            tips.push("连续在座偏长，建议每 45–60 分钟起身 3–5 分钟。".into());
         }
     }
 

@@ -92,13 +92,24 @@ fn reset_session_if_new_day() {
 }
 
 fn load() -> HashMap<String, FocusDay> {
+    let days = crate::metrics_db::load_kind::<FocusDay>("focus");
+    if !days.is_empty() {
+        let mut map = HashMap::new();
+        for (k, v) in days {
+            map.insert(k, v);
+        }
+        return map;
+    }
     std::fs::read_to_string(metrics_path())
         .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
+        .and_then(|s| serde_json::from_str(s.as_str()).ok())
         .unwrap_or_default()
 }
 
 fn save(map: &HashMap<String, FocusDay>) {
+    for (date, day) in map {
+        crate::metrics_db::upsert_day("focus", date, day);
+    }
     if let Some(p) = metrics_path().parent() {
         let _ = std::fs::create_dir_all(p);
     }
@@ -108,43 +119,121 @@ fn save(map: &HashMap<String, FocusDay>) {
     );
 }
 
+fn is_browser_exe(app: &str) -> bool {
+    let l = app.to_ascii_lowercase();
+    l.contains("chrome")
+        || l.contains("msedge")
+        || l.contains("firefox")
+        || l.contains("brave")
+        || l.contains("edge.exe")
+        || l.contains("iexplore")
+        || l.contains("browser")
+}
+
+/// 浏览器标题中的休闲站点（只用于摸鱼分类，不读正文）
+fn browser_leisure_tag(title: &str) -> Option<&'static str> {
+    let t = title.to_ascii_lowercase();
+    if t.trim().is_empty() {
+        return None;
+    }
+    let video = [
+        "bilibili", "b站", "youtube", "youtu.be", "youku", "iqiyi", "爱奇艺",
+        "优酷", "腾讯视频", "v.qq.com", "douyin", "抖音", "tiktok", "kuaishou",
+        "快手", "netflix", "mgtv", "芒果tv", "acfun",
+    ];
+    let music = [
+        "music.163.com", "y.qq.com", "kugou", "kuwo", "spotify.com",
+        "music.apple", "soundcloud", "哔哩哔哩音乐",
+    ];
+    let game = [
+        "steam", "4399", "7k7k", "game", "huya.com", "douyu.com",
+        "games", "playstation", "xbox",
+    ];
+    if video.iter().any(|k| t.contains(k)) {
+        return Some("视频站点");
+    }
+    if music.iter().any(|k| t.contains(k)) {
+        return Some("音乐站点");
+    }
+    if game.iter().any(|k| t.contains(k)) {
+        return Some("游戏站点");
+    }
+    None
+}
+
+fn process_basename(app: &str) -> String {
+    let short = app
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or(app)
+        .trim()
+        .to_ascii_lowercase();
+    if short.is_empty() {
+        return "unknown".into();
+    }
+    short.chars().take(32).collect()
+}
+
+/// 前台采样键：优先进程名；浏览器且标题像休闲站 → 站点标签（便于摸鱼归类）
+fn app_sample_key(app: &str, title: &str) -> String {
+    let base = process_basename(app);
+    if is_browser_exe(app) {
+        if let Some(tag) = browser_leisure_tag(title) {
+            return format!("{tag}·{base}");
+        }
+        return format!("{base}(浏览器)");
+    }
+    base
+}
+
+#[allow(dead_code)]
 fn classify_app(exe_or_title: &str) -> String {
     let l = exe_or_title.to_ascii_lowercase();
     if l.contains("code") || l.contains("cursor") || l.contains("idea") || l.contains("pycharm")
         || l.contains("rider") || l.contains("goland") || l.contains("trae")
         || l.contains("vim") || l.contains("clion") || l.contains("android studio")
+        || l.contains("datagrip") || l.contains("webstorm") || l.contains("phpstorm")
     {
         return "编辑器/IDE".into();
     }
-    if l.contains("chrome") || l.contains("msedge") || l.contains("firefox") || l.contains("browser") {
+    if is_browser_exe(&l) {
         return "浏览器".into();
     }
-    if l.contains("wechat") || l.contains("weixin") || l.contains("qq") || l.contains("dingtalk")
-        || l.contains("feishu") || l.contains("lark") || l.contains("teams") || l.contains("tim.exe")
+    if l.contains("wechat") || l.contains("weixin") || l.contains("微信") {
+        return "通讯".into();
+    }
+    if l.contains("dingtalk") || l.contains("feishu") || l.contains("lark")
+        || l.contains("teams") || l.contains("wecom") || l.contains("企业微信")
+        || l.contains("tim.exe") || l.contains("qq.exe") || l.contains("telegram")
+        || l.contains("discord")
     {
         return "通讯".into();
     }
     if l.contains("windows terminal") || l.contains("cmd") || l.contains("powershell")
-        || l.contains("wt.exe") || l.contains("conhost")
+        || l.contains("wt.exe") || l.contains("conhost") || l.contains("bash")
+        || l.contains("windowsterminal")
     {
         return "终端".into();
     }
     if l.contains("explorer") || l.contains("total") || l.contains("listary") {
         return "文件管理".into();
     }
-    if l.contains("personal-workbench") || l.contains("个人工作台") {
+    if l.contains("personal-workbench") || l.contains("个人工作台") || l.contains("牛马") {
         return "工作台".into();
     }
-    if l.contains("notepad") || l.contains("typora") || l.contains("obsidian") || l.contains("word") {
+    if l.contains("notepad") || l.contains("typora") || l.contains("obsidian")
+        || l.contains("word") || l.contains("logseq")
+    {
         return "笔记/文档".into();
     }
-    if l.contains("excel") || l.contains("wps") {
-        return "表格".into();
+    if l.contains("excel") || l.contains("wps") || l.contains("powerpnt")
+        || l.contains("powerpoint") || l.contains("et.exe")
+    {
+        return "表格/演示".into();
     }
     if l.contains("desktop") || l.is_empty() || l.contains("unknown") {
         return "桌面/其他".into();
     }
-    // truncate long
     let short = exe_or_title
         .rsplit(['\\', '/'])
         .next()
@@ -243,8 +332,10 @@ fn poll_foreground_loop() {
         std::thread::spawn(|| loop {
             let app = current_foreground_app();
             if !app.is_empty() {
+                let title = current_foreground_title();
+                let key = app_sample_key(&app, &title);
                 APP_TICKS.with(|m| {
-                    *m.entry(classify_app(&app)).or_insert(0) += 1;
+                    *m.entry(key).or_insert(0) += 1;
                 });
             }
             std::thread::sleep(Duration::from_secs(3));
@@ -455,10 +546,12 @@ fn session_ticks() -> HashMap<String, u64> {
 }
 
 fn merge_app_seconds(base: &[AppUsage], session: &HashMap<String, u64>) -> Vec<(String, u64)> {
+    // 前台采样间隔 3s → 每个 tick 记 3 秒
+    const TICK_SECS: u64 = 3;
     let mut map: HashMap<String, u64> = base.iter().map(|a| (a.name.clone(), a.seconds)).collect();
     for (k, v) in session {
         if *v > 0 {
-            *map.entry(k.clone()).or_insert(0) += *v;
+            *map.entry(k.clone()).or_insert(0) += *v * TICK_SECS;
         }
     }
     let mut list: Vec<(String, u64)> = map.into_iter().collect();
@@ -474,14 +567,9 @@ pub fn current() -> FocusDay {
 pub fn persist() {
     reset_session_if_new_day();
     let day = current_inner();
+    crate::metrics_db::upsert_day("focus", &day.date, &day);
     let mut map = load();
     map.insert(day.date.clone(), day);
-    if map.len() > 60 {
-        let keys: Vec<String> = map.keys().cloned().collect();
-        for k in keys.into_iter().take(map.len() - 60) {
-            map.remove(&k);
-        }
-    }
     save(&map);
     APP_TICKS.with(|m| m.clear());
 }
@@ -502,7 +590,7 @@ fn current_inner() -> FocusDay {
     let total: u64 = merged.iter().map(|a| a.1).sum::<u64>().max(1);
     let apps: Vec<AppUsage> = merged
         .into_iter()
-        .take(8)
+        .take(24)
         .map(|(name, seconds)| AppUsage {
             name,
             seconds,
@@ -540,4 +628,11 @@ pub fn last_n(n: usize) -> Vec<FocusDay> {
     } else {
         all
     }
+}
+
+pub fn range_days(start: &str, end: &str) -> Vec<FocusDay> {
+    crate::metrics_db::load_range::<FocusDay>("focus", start, end)
+        .into_iter()
+        .map(|(_, v)| v)
+        .collect()
 }

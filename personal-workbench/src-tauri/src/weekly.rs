@@ -131,10 +131,11 @@ pub fn week_file(cfg: &Config, now: DateTime<Local>) -> (String, String, std::pa
 pub fn status(cfg: &Config) -> WeeklyStatus {
     let now = Local::now();
     let (week_id, range, path) = week_file(cfg, now);
-    let _ = range;
     let (week_start, week_end) = {
-        let parts: Vec<_> = week_id.split('-').collect();
-        (parts.first().cloned().unwrap_or("").to_string(), week_id.clone())
+        let mut it = range.splitn(2, '~');
+        let a = it.next().unwrap_or("").trim().to_string();
+        let b = it.next().unwrap_or("").trim().to_string();
+        (a, b)
     };
     let exists = path.exists();
     let modified_this_week = path
@@ -194,6 +195,82 @@ pub fn read_file_by_path(path: &str) -> anyhow::Result<String> {
     Ok(std::fs::read_to_string(path)?)
 }
 
+fn is_placeholder_line(line: &str) -> bool {
+    let t = line.trim();
+    if t.is_empty() || t == "-" {
+        return true;
+    }
+    let bare = t
+        .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == '、')
+        .trim();
+    matches!(
+        bare,
+        ""
+            | "（请补充业务侧计划）"
+            | "（业务侧计划）"
+            | "（如有阻塞请补充）"
+            | "（请自行填写）"
+            | "（请填写）"
+            | "继续推进本周未闭环事项"
+            | "继续推进本周未闭环的事项"
+    ) || bare.chars().all(|c| c == '（' || c == ')' || c == '(' || c == '）' || c == ' ')
+}
+
+/// Extract a filled user section body from existing markdown (plan/risk).
+fn extract_user_section(existing: &str, keywords: &[&str]) -> Option<String> {
+    if existing.trim().is_empty() {
+        return None;
+    }
+    let mut lines = existing.lines().peekable();
+    let mut capturing = false;
+    let mut buf: Vec<String> = Vec::new();
+    while let Some(line) = lines.next() {
+        let l = line.trim();
+        if l.starts_with('#') {
+            if capturing {
+                break;
+            }
+            if keywords.iter().any(|k| l.contains(k)) {
+                capturing = true;
+                buf.clear();
+            }
+            continue;
+        }
+        if capturing {
+            if l == "---" {
+                break;
+            }
+            buf.push(line.to_string());
+        }
+    }
+    let meaningful: Vec<String> = buf
+        .iter()
+        .filter(|l| !is_placeholder_line(l))
+        .cloned()
+        .collect();
+    if meaningful.is_empty() {
+        return None;
+    }
+    let body = buf
+        .iter()
+        .filter(|l| {
+            let t = l.trim();
+            !t.is_empty()
+                && !is_placeholder_line(t)
+                && !matches!(t, "1." | "2." | "3." | "-" | "*")
+        })
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    if body.is_empty() {
+        None
+    } else {
+        Some(body)
+    }
+}
+
 fn collect_commits(cfg: &Config, now: DateTime<Local>) -> String {
     let weekday = now.weekday().num_days_from_monday();
     let start = (now - chrono::Duration::days(weekday as i64)).date_naive();
@@ -246,9 +323,37 @@ fn collect_commits(cfg: &Config, now: DateTime<Local>) -> String {
         .unwrap_or_default();
         let status = decode_porcelain(&status);
         if !status.trim().is_empty() {
-            buf.push_str("**未提交变更**\n\n```\n");
-            buf.push_str(&status);
-            buf.push_str("```\n\n");
+            let preview: Vec<String> = decode_porcelain(&status)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| {
+                    let path_part = if l.len() > 3 { &l[3..] } else { l };
+                    let p = path_part.trim();
+                    // R  "a" -> "b" 只保留目标路径
+                    if p.contains(" -> ") {
+                        p.rsplit(" -> ")
+                            .next()
+                            .unwrap_or(p)
+                            .trim_matches('"')
+                            .to_string()
+                    } else {
+                        p.trim_matches('"').to_string()
+                    }
+                })
+                .collect();
+            let n = preview.len();
+            buf.push_str("**未提交变更**\n\n");
+            if n <= 12 {
+                for p in preview {
+                    buf.push_str(&format!("- `{p}`\n"));
+                }
+            } else {
+                for p in preview.iter().take(12) {
+                    buf.push_str(&format!("- `{p}`\n"));
+                }
+                buf.push_str(&format!("- …共 {n} 条\n"));
+            }
+            buf.push('\n');
         }
     }
     buf
@@ -315,26 +420,44 @@ fn office_week_block() -> (bool, String) {
 
 fn health_week_block(week_act: &[activity::DayActivity]) -> String {
     let total_active: u64 = week_act.iter().map(|d| d.active_seconds).sum();
+    let total_confident: u64 = week_act.iter().map(|d| d.confident_seconds).sum();
+    let max_streak: u64 = week_act
+        .iter()
+        .map(|d| {
+            d.max_sit_streak_seconds
+                .max(d.sit_streak_seconds)
+                .max(d.max_streak_seconds)
+        })
+        .max()
+        .unwrap_or(0);
+    let away_gaps: u32 = week_act.iter().map(|d| d.away_gaps).sum();
     let day = crate::daily::current();
     let health = crate::health::evaluate_rules();
     let focus = crate::focus::current();
     let mut s = String::new();
     s.push_str(&format!(
-        "- 本周在机约 **{}**；今日工作 {} · 最长连续 {}\n",
+        "- 本周高置信在机 **{}**（在线约 {}）· 本周最长连续在座 {} · 离位约 {} 次\n",
+        activity::format_duration(total_confident),
         activity::format_duration(total_active),
-        activity::format_duration(day.work_seconds.max(day.max_streak_seconds)),
-        activity::format_duration(day.max_streak_seconds)
+        activity::format_duration(max_streak),
+        away_gaps
     ));
     s.push_str(&format!(
-        "- 健康分 **{}**（{}）· 节奏 {} · 专注/碎片 {}/{}\n",
+        "- 今日健康分 **{}**（{}）· 高置信约 {:.1}h · 连续在座 {} · 锁屏 {}\n",
         health.score,
         health.level,
-        focus.rhythm_label,
-        focus.focus_blocks,
-        focus.fragment_events
+        health.confident_hours.max(0.0),
+        activity::format_duration(
+            crate::activity::today_sit_streak(&crate::config::data_dir(&crate::config::load_config()))
+        ),
+        day.locks
     ));
-    if day.locks == 0 && total_active > 4 * 3600 {
-        s.push_str("- 在机时间较长且锁屏很少，注意久坐与走动\n");
+    s.push_str(&format!(
+        "- 节奏 {} · 专注块/碎片 {}/{} · 键入 {}\n",
+        focus.rhythm_label, focus.focus_blocks, focus.fragment_events, day.keys
+    ));
+    if total_confident > 4 * 3600 && max_streak >= 90 * 60 {
+        s.push_str("- 本周存在较长连续在座段，注意久坐与走动\n");
     }
     s.push('\n');
     s
@@ -447,6 +570,7 @@ fn collect_repo_works(cfg: &Config, after: &str) -> Vec<(String, Vec<(String, St
 pub fn draft(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
     let now = Local::now();
     let (week_id, range, path) = week_file(cfg, now);
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
     let git = crate::git_stats::collect_overview(cfg);
     let week_act = activity::week_summary(&crate::config::data_dir(cfg), now);
     let total_active: u64 = week_act.iter().map(|d| d.active_seconds).sum();
@@ -484,12 +608,14 @@ pub fn draft(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
     md.push_str(&format!("> 生成时间：{}\n\n", now.format("%Y-%m-%d %H:%M")));
     md.push_str("---\n\n");
     md.push_str("## 概览\n\n");
+    let week_confident: u64 = week_act.iter().map(|d| d.confident_seconds).sum();
     md.push_str(&format!(
-        "- 提交 **{}** 次 · 代码 **+{} / −{}**{} · 在线 **{}** · 未提交 **{}**\n\n",
+        "- 提交 **{}** 次 · 代码 **+{} / −{}**{} · 高置信在机 **{}**（在线 {}）· 未提交 **{}**\n\n",
         git.week_commits,
         git.week_additions,
         git.week_deletions,
         ext_note,
+        activity::format_duration(week_confident),
         activity::format_duration(total_active),
         git.dirty_files
     ));
@@ -522,21 +648,25 @@ pub fn draft(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
     }
 
     md.push_str("## 下周计划（请填写）\n\n");
-    if !dirty_lines.is_empty() {
-        md.push_str("1. 完成未提交变更的提交与联调\n");
-    } else {
-        md.push_str("1. \n");
-    }
-    md.push_str("2. 继续推进本周未闭环事项\n");
-    md.push_str("3. （业务侧计划）\n\n");
-    md.push_str("## 风险与依赖\n\n- \n");
+    let plan = extract_user_section(&existing, &["下周计划"]).unwrap_or_else(|| {
+        if !dirty_lines.is_empty() {
+            "1. 完成未提交变更的提交与联调\n2. 继续推进本周未闭环事项".to_string()
+        } else {
+            "1. \n2. ".to_string()
+        }
+    });
+    md.push_str(&plan);
+    md.push_str("\n\n## 风险与依赖\n\n");
+    let risk = extract_user_section(&existing, &["风险", "阻塞", "依赖"])
+        .unwrap_or_else(|| "- ".to_string());
+    md.push_str(&risk.trim_end());
+    md.push('\n');
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    if !path.exists() {
-        std::fs::write(&path, &md)?;
-    }
+    // 草稿每次生成覆盖磁盘文件，避免旧版/八进制路径残留在历史里
+    std::fs::write(&path, &md)?;
     Ok((md, path))
 }
 
@@ -578,18 +708,37 @@ fn clean_subject(s: &str) -> String {
 
 fn kind_of(raw: &str) -> &'static str {
     let l = raw.to_ascii_lowercase();
-    if l.contains("fix") || l.contains("bug") || l.contains("修复") {
+    if l.contains("fix") || l.contains("bug") || l.contains("修复") || l.contains("修正") {
         "修复"
-    } else if l.contains("feat") || l.contains("add") || l.contains("新增") || l.contains("实现") {
+    } else if l.contains("feat")
+        || l.contains("add")
+        || l.contains("新增")
+        || l.contains("实现")
+        || l.contains("支持")
+        || l.contains("接入")
+    {
         "功能"
-    } else if l.contains("refactor") || l.contains("重构") || l.contains("优化") {
+    } else if l.contains("refactor")
+        || l.contains("重构")
+        || l.contains("优化")
+        || raw.contains("优化")
+    {
         "优化"
     } else if l.contains("doc") || l.contains("readme") || l.contains("文档") {
         "文档"
-    } else if l.contains("test") {
+    } else if l.contains("test") || l.contains("测试") {
         "测试"
     } else if l.contains("ui") || l.contains("style") || l.contains("界面") {
         "界面"
+    } else if raw.contains("更新")
+        || raw.contains("补充")
+        || raw.contains("完善")
+        || raw.contains("调整")
+        || raw.contains("逻辑")
+        || raw.contains("汇总")
+        || raw.contains("交互")
+    {
+        "功能"
     } else {
         "其他"
     }
@@ -599,6 +748,7 @@ fn kind_of(raw: &str) -> &'static str {
 pub fn polish(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
     let now = Local::now();
     let (week_id, range, path) = week_file(cfg, now);
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
     let git = crate::git_stats::collect_overview(cfg);
     let week_act = activity::week_summary(&crate::config::data_dir(cfg), now);
     let total_active: u64 = week_act.iter().map(|d| d.active_seconds).sum();
@@ -654,12 +804,16 @@ pub fn polish(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
             || !others.is_empty()
             || git.dirty_files > 0);
     let has_office_data = cfg.weekly_scope_office && office.0;
-    let has_health_data = cfg.weekly_scope_health;
+    let week_confident: u64 = week_act.iter().map(|d| d.confident_seconds).sum();
+    let has_health_data = cfg.weekly_scope_health
+        && (week_confident > 0
+            || total_active > 0
+            || week_act.iter().any(|d| d.max_streak_seconds > 0));
 
     let mut md = String::new();
     md.push_str(&format!("# 工作周报 · {week_id}\n\n"));
     md.push_str(&format!(
-        "**区间**：{range}  \n**汇总**：代码 +{}/−{} · 提交 {} · 办公文档 {} · 在线 {}\n",
+        "**区间**：{range}  \n**汇总**：代码 +{}/−{} · 提交 {} · 办公文档 {} · 高置信在机 {}（在线 {}）\n",
         git.week_additions,
         git.week_deletions,
         git.week_commits,
@@ -668,6 +822,7 @@ pub fn polish(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
         } else {
             "—".into()
         },
+        activity::format_duration(week_act.iter().map(|d| d.confident_seconds).sum()),
         activity::format_duration(total_active)
     ));
     if !cfg.weekly_repos.is_empty() {
@@ -732,14 +887,28 @@ pub fn polish(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
     }
 
     md.push_str(&format!("## {}、下周计划\n\n", next_sec()));
-    if !dirty_lines.is_empty() {
-        md.push_str("1. 完成未提交变更的提交与联调\n");
+    let polished_existing =
+        std::fs::read_to_string(&path.with_file_name(format!("{week_id}-润色.md")))
+            .unwrap_or_default();
+    let plan_src = if !polished_existing.is_empty() {
+        polished_existing.as_str()
     } else {
-        md.push_str("1. \n");
-    }
-    md.push_str("2. 继续推进本周未闭环的事项\n");
-    md.push_str("3. （请补充业务侧计划）\n\n");
-    md.push_str("## 风险与依赖\n\n- （如有阻塞请补充）\n");
+        existing.as_str()
+    };
+    let plan = extract_user_section(plan_src, &["下周计划"]).unwrap_or_else(|| {
+        if !dirty_lines.is_empty() {
+            "1. 完成未提交变更的提交与联调\n2. 继续推进本周未闭环的事项".to_string()
+        } else {
+            "1. \n2. ".to_string()
+        }
+    });
+    md.push_str(&plan);
+    md.push_str("\n\n");
+    md.push_str(&format!("## {}、风险与依赖\n\n", next_sec()));
+    let risk = extract_user_section(plan_src, &["风险", "阻塞", "依赖"])
+        .unwrap_or_else(|| "- （如有阻塞请补充）".to_string());
+    md.push_str(risk.trim_end());
+    md.push('\n');
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;

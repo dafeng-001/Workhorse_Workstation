@@ -9,6 +9,7 @@ mod git_stats;
 mod health;
 mod history;
 mod log;
+mod metrics_db;
 mod process;
 mod scanner;
 mod singleton;
@@ -647,6 +648,7 @@ async fn set_widget_visible(app: AppHandle<Wry>, visible: bool) -> Result<bool, 
 #[tauri::command]
 async fn polish_weekly(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let cfg = state.config.lock().unwrap().clone();
+    let cfg_for_status = cfg.clone();
     git_stats::invalidate_cache();
     let result = std::thread::spawn(move || weekly::polish(&cfg))
         .join()
@@ -657,10 +659,7 @@ async fn polish_weekly(state: State<'_, AppState>) -> Result<serde_json::Value, 
     Ok(serde_json::json!({
         "content": content,
         "path": path.to_string_lossy().to_string(),
-        "status": {
-            "ready": true,
-            "path": path.to_string_lossy().to_string(),
-        }
+        "status": weekly::status(&cfg_for_status),
     }))
 }
 
@@ -810,7 +809,9 @@ async fn get_widget_summary() -> Result<serde_json::Value, String> {
         "online_seconds": act,
         "keys": d.keys,
         "locks": d.locks,
-        "streak_seconds": d.max_streak_seconds,
+        "streak_seconds": crate::activity::today_sit_streak(&crate::config::data_dir(
+            &crate::config::load_config(),
+        )),
         "health_score": h.score,
         "health_level": h.level,
     }))
@@ -825,6 +826,14 @@ async fn get_focus() -> Result<serde_json::Value, String> {
 #[tauri::command]
 async fn get_daily() -> Result<serde_json::Value, String> {
     let m = daily::current();
+    let cfg = crate::config::load_config();
+    let data = crate::config::data_dir(&cfg);
+    let act = activity::today(&data);
+    let sit_s = act
+        .max_sit_streak_seconds
+        .max(act.sit_streak_seconds)
+        .max(act.max_streak_seconds)
+        .max(m.max_streak_seconds);
     Ok(serde_json::json!({
         "keys": m.keys,
         "clicks": m.clicks,
@@ -832,6 +841,9 @@ async fn get_daily() -> Result<serde_json::Value, String> {
         "unlocks": m.unlocks,
         "max_streak_seconds": m.max_streak_seconds,
         "max_streak_label": daily::format_hm(m.max_streak_seconds),
+        "sit_streak_seconds": sit_s,
+        "streak_seconds": sit_s,
+        "streak_label": daily::format_hm(sit_s),
         "work_seconds": m.work_seconds,
         "work_label": daily::format_hm(m.work_seconds.max(m.max_streak_seconds)),
         "history": daily::last_n(7),
@@ -887,8 +899,13 @@ async fn get_health_detail(state: State<'_, AppState>) -> Result<serde_json::Val
             .find(|a| a.date == day.date)
             .cloned()
             .unwrap_or_default();
-        // 久坐/连续：优先高置信最长连续（activity.max_streak 已改为不丢 max）
+        // 久坐/连续在座：activity.max_sit_streak 优先，兼容 daily 跟踪
         let streak_s = act_today
+            .max_sit_streak_seconds
+            .max(act_today.sit_streak_seconds)
+            .max(act_today.max_streak_seconds)
+            .max(day.max_streak_seconds);
+        let work_streak_s = act_today
             .max_streak_seconds
             .max(day.max_streak_seconds);
         let sit_alert = streak_s >= sit_secs;
@@ -943,7 +960,7 @@ async fn get_health_detail(state: State<'_, AppState>) -> Result<serde_json::Val
 
         let mut tips: Vec<String> = health.tips.clone();
         if sit_alert {
-            tips.insert(0, format!("久坐提醒：已连续工作约 {}，建议起身活动", crate::activity::format_duration(streak_s)));
+            tips.insert(0, format!("久坐提醒：已连续在座约 {}，建议起身活动", crate::activity::format_duration(streak_s)));
         }
         if im_pct >= 35.0 {
             tips.push(format!("通讯应用占比 {:.0}%，注意被打断", im_pct));
@@ -961,6 +978,9 @@ async fn get_health_detail(state: State<'_, AppState>) -> Result<serde_json::Val
                 "unlocks": day.unlocks,
                 "streak_s": streak_s,
                 "streak_label": daily::format_hm(streak_s),
+                "work_streak_s": work_streak_s,
+                "work_streak_label": daily::format_hm(work_streak_s),
+                "sit_streak_s": act_today.max_sit_streak_seconds.max(act_today.sit_streak_seconds),
                 "work_s": work_s,
                 "work_label": daily::format_hm(work_s),
                 "online_s": online_s,
@@ -982,16 +1002,17 @@ async fn get_health_detail(state: State<'_, AppState>) -> Result<serde_json::Val
             },
             "sit": {
                 "threshold_min": sit_min,
+                "break_min": cfg.sit_break_minutes.max(cfg.idle_threshold_minutes).max(5),
                 "alert": sit_alert,
                 "sitting": sit_alert,
                 "streak_s": streak_s,
                 "label": daily::format_hm(streak_s),
                 "message": if sit_alert {
-                    format!("已连续 {}，超过 {} 分钟阈值", daily::format_hm(streak_s), sit_min)
+                    format!("已连续在座 {}，超过 {} 分钟阈值", daily::format_hm(streak_s), sit_min)
                 } else if streak_s > 0 {
-                    format!("当前连续 {}，阈值 {} 分钟", daily::format_hm(streak_s), sit_min)
+                    format!("当前连续在座 {}，阈值 {} 分钟", daily::format_hm(streak_s), sit_min)
                 } else {
-                    "暂无连续工作".into()
+                    "暂无连续在座".into()
                 }
             },
             "health": {
@@ -1047,6 +1068,171 @@ async fn get_history(state: State<'_, AppState>) -> Result<Vec<history::DaySampl
     Ok(history::last_n(30))
 }
 
+#[tauri::command]
+async fn get_range_detail(
+    state: State<'_, AppState>,
+    start: String,
+    end: String,
+) -> Result<serde_json::Value, String> {
+    let cfg = state.config.lock().unwrap().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (s, e) = if start <= end {
+            (start, end)
+        } else {
+            (end, start)
+        };
+        let act = activity::range_days(&s, &e);
+        let daily = daily::range_days(&s, &e);
+        let focus = focus::range_days(&s, &e);
+        let hist = history::range_days(&s, &e);
+
+        let mut active = 0u64;
+        let mut confident = 0u64;
+        let mut max_sit = 0u64;
+        let mut away_gaps = 0u32;
+        let mut away_s = 0u64;
+        for a in &act {
+            active += a.active_seconds;
+            confident += a.confident_seconds;
+            max_sit = max_sit
+                .max(a.max_sit_streak_seconds)
+                .max(a.sit_streak_seconds)
+                .max(a.max_streak_seconds);
+            away_gaps += a.away_gaps;
+            away_s += a.away_seconds;
+        }
+        let mut keys = 0u64;
+        let mut clicks = 0u64;
+        let mut locks = 0u32;
+        for d in &daily {
+            keys += d.keys;
+            clicks += d.clicks;
+            locks += d.locks;
+            max_sit = max_sit.max(d.max_streak_seconds);
+        }
+        let mut add = 0i64;
+        let mut del = 0i64;
+        let mut commits = 0u32;
+        for h in &hist {
+            add += h.additions;
+            del += h.deletions;
+            commits += h.commits;
+        }
+        // 可选：git 现算补齐本地 history 缺口（区间 ≤ 365 天时）
+        let days = (chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok())
+            .zip(chrono::NaiveDate::parse_from_str(&e, "%Y-%m-%d").ok())
+            .map(|(a, b)| (b - a).num_days().max(0) as usize)
+            .unwrap_or(0);
+        if days > 0 && days <= 365 && hist.is_empty() {
+            let rows = git_stats::collect_daily_lines_last_n(&cfg, days + 1);
+            for (date, a, d, c) in rows {
+                if date.as_str() >= s.as_str() && date.as_str() <= e.as_str() {
+                    add += a;
+                    del += d;
+                    commits += c;
+                }
+            }
+        }
+
+        let mut app_secs: std::collections::BTreeMap<String, u64> = Default::default();
+        let mut wechat_fg = 0u64;
+        let mut wechat_mp = 0u64;
+        let mut focus_blocks = 0u64;
+        let mut frags = 0u64;
+        for f in &focus {
+            wechat_fg += f.wechat_fg_s;
+            wechat_mp += f.wechat_mp_s;
+            focus_blocks += f.focus_blocks;
+            frags += f.fragment_events;
+            for a in &f.apps {
+                *app_secs.entry(a.name.clone()).or_insert(0) += a.seconds;
+            }
+        }
+        let mut app_list: Vec<serde_json::Value> = app_secs
+            .into_iter()
+            .map(|(name, seconds)| {
+                serde_json::json!({
+                    "name": name,
+                    "seconds": seconds,
+                    "label": activity::format_duration(seconds),
+                })
+            })
+            .collect();
+        app_list.sort_by_key(|v| std::cmp::Reverse(v["seconds"].as_u64().unwrap_or(0)));
+        app_list.truncate(12);
+
+        // 按日序列（趋势）
+        use std::collections::BTreeMap;
+        let mut by_date: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+        for a in &act {
+            let e = by_date
+                .entry(a.date.clone())
+                .or_insert_with(|| serde_json::json!({ "date": a.date, "additions": 0, "deletions": 0, "commits": 0, "confident_s": 0, "active_s": 0, "max_sit_s": 0, "keys": 0 }));
+            e["confident_s"] = serde_json::json!(e["confident_s"].as_u64().unwrap_or(0) + a.confident_seconds);
+            e["active_s"] = serde_json::json!(e["active_s"].as_u64().unwrap_or(0) + a.active_seconds);
+            e["max_sit_s"] = serde_json::json!(e["max_sit_s"].as_u64().unwrap_or(0).max(a.max_sit_streak_seconds.max(a.sit_streak_seconds).max(a.max_streak_seconds)));
+        }
+        for d in &daily {
+            let e = by_date
+                .entry(d.date.clone())
+                .or_insert_with(|| serde_json::json!({ "date": d.date, "additions": 0, "deletions": 0, "commits": 0, "confident_s": 0, "active_s": 0, "max_sit_s": 0, "keys": 0 }));
+            e["keys"] = serde_json::json!(e["keys"].as_u64().unwrap_or(0) + d.keys);
+            e["max_sit_s"] = serde_json::json!(e["max_sit_s"].as_u64().unwrap_or(0).max(d.max_streak_seconds));
+        }
+        for h in &hist {
+            let e = by_date
+                .entry(h.date.clone())
+                .or_insert_with(|| serde_json::json!({ "date": h.date, "additions": 0, "deletions": 0, "commits": 0, "confident_s": 0, "active_s": 0, "max_sit_s": 0, "keys": 0 }));
+            e["additions"] = serde_json::json!(h.additions);
+            e["deletions"] = serde_json::json!(h.deletions);
+            e["commits"] = serde_json::json!(h.commits);
+        }
+        // 填满日期空洞，便于画柱
+        if let (Ok(sd), Ok(ed)) = (
+            chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d"),
+            chrono::NaiveDate::parse_from_str(&e, "%Y-%m-%d"),
+        ) {
+            let mut cur = sd;
+            while cur <= ed {
+                let key = cur.to_string();
+                by_date.entry(key.clone()).or_insert_with(|| {
+                    serde_json::json!({
+                        "date": key, "additions": 0, "deletions": 0, "commits": 0,
+                        "confident_s": 0, "active_s": 0, "max_sit_s": 0, "keys": 0
+                    })
+                });
+                cur += chrono::Duration::days(1);
+            }
+        }
+        let series: Vec<&serde_json::Value> = by_date.values().collect();
+
+        Ok(serde_json::json!({
+            "start": s,
+            "end": e,
+            "days": act.len().max(daily.len()).max(focus.len()).max(hist.len()),
+            "git": { "additions": add, "deletions": del, "commits": commits },
+            "activity": {
+                "active_s": active,
+                "confident_s": confident,
+                "max_sit_s": max_sit,
+                "away_gaps": away_gaps,
+                "away_s": away_s,
+                "active_label": activity::format_duration(active),
+                "confident_label": activity::format_duration(confident),
+                "max_sit_label": activity::format_duration(max_sit),
+            },
+            "input": { "keys": keys, "clicks": clicks, "locks": locks },
+            "focus": { "focus_blocks": focus_blocks, "fragments": frags, "wechat_fg_s": wechat_fg, "wechat_mp_s": wechat_mp },
+            "apps": app_list,
+            "series": series,
+            "retention_days": cfg.metrics_retention_days,
+            "note": "区间汇总来自本地 metrics.sqlite 日表；git 可在无本地行数时按需现算。",
+        }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn show_toast(title: &str, body: &str) {
     // Windows balloon via PowerShell — no extra plugin
     let script = format!(
@@ -1094,10 +1280,20 @@ fn start_reminder_loop(app: AppHandle<Wry>) {
                 }
             }
 
-            // 久坐提醒：连续工作超过阈值时托盘提示（同一天按阈值档提醒）
+            // 久坐提醒：连续在座超过阈值时托盘提示（同一天按阈值档提醒）
             let day = daily::current();
-            let streak = day.max_streak_seconds;
-            let sit_thresh = cfg.idle_threshold_minutes.max(45) * 60;
+            let data_dir = config::data_dir(&cfg);
+            let act_today = activity::today(&data_dir);
+            let streak = act_today
+                .max_sit_streak_seconds
+                .max(act_today.sit_streak_seconds)
+                .max(act_today.max_streak_seconds)
+                .max(day.max_streak_seconds);
+            let sit_thresh = cfg
+                .idle_threshold_minutes
+                .max(45)
+                .max(cfg.sit_break_minutes)
+                * 60;
             if streak >= sit_thresh {
                 let key = format!("{today}-{}", streak / sit_thresh.max(1));
                 if last_sit_alert != key {
@@ -1105,7 +1301,7 @@ fn start_reminder_loop(app: AppHandle<Wry>) {
                     show_toast(
                         "健康 · 久坐提醒",
                         &format!(
-                            "已连续工作 {}，建议起身活动 3–5 分钟",
+                            "已连续在座 {}，建议起身活动 3–5 分钟",
                             activity::format_duration(streak)
                         ),
                     );
@@ -1332,6 +1528,10 @@ fn start_activity_poller(app: AppHandle<Wry>) {
             let cfg = state.config.lock().unwrap().clone();
             let data = config::data_dir(&cfg);
             activity::tick(&data, cfg.idle_threshold_minutes, cfg.activity_poll_seconds);
+            // 按配置裁剪历史（0=永久）
+            if cfg.metrics_retention_days > 0 {
+                metrics_db::apply_retention(cfg.metrics_retention_days);
+            }
             daily::persist();
             focus::persist();
             n += 1;
@@ -1579,6 +1779,10 @@ pub fn run() {
             daily::warmup();
             focus::warmup();
             {
+                let ret = crate::config::load_config().metrics_retention_days;
+                metrics_db::warmup(ret);
+            }
+            {
                 let cfg0 = config::load_config();
                 if cfg0.auto_scan {
                     std::thread::spawn(move || {
@@ -1640,6 +1844,7 @@ pub fn run() {
             set_widget_visible,
             polish_weekly,
             get_history,
+            get_range_detail,
             get_daily,
             get_focus,
             get_widget_summary,
