@@ -1063,6 +1063,7 @@ $("btn-weekly").addEventListener("click", async ()=>{
 $("btn-config").addEventListener("click", async ()=>{
   const cfg = await invoke("get_config");
   openConfig(cfg);
+  refreshAppVersion().catch(()=>{});
 });
 $("btn-weekly-draft")?.addEventListener("click", async ()=>{
   const btn = $("btn-weekly-draft");
@@ -1311,6 +1312,46 @@ async function loadWeeklyHistory(preferPath) {
 
 $("btn-open-log")?.addEventListener("click", async ()=>{
   try { await invoke("open_log"); } catch (e) { alert(String(e)); }
+});
+/* 在线更新 */
+async function refreshAppVersion() {
+  try {
+    const v = await invoke("get_app_version");
+    setMany(["app-version"], v || "—");
+  } catch { setMany(["app-version"], "—"); }
+}
+$("btn-check-update")?.addEventListener("click", async ()=>{
+  const btn = $("btn-check-update"), st = $("update-status"), apply = $("btn-apply-update");
+  if (btn) { btn.disabled = true; btn.textContent = "检查中…"; }
+  try {
+    const info = await invoke("check_update");
+    if (!info) { if (st) st.textContent = "检查失败"; return; }
+    if (info.has_update) {
+      if (st) st.textContent = `发现新版 ${info.latest_tag}（当前 ${info.current_version}）${info.notes ? " · " + String(info.notes).slice(0,80) : ""}`;
+      if (apply) { apply.hidden = false; apply.dataset.url = info.download_url || ""; apply.dataset.tag = info.latest_tag || ""; }
+    } else {
+      if (st) st.textContent = `已是最新（${info.current_version} / ${info.latest_tag || "无 tag"}）`;
+      if (apply) apply.hidden = true;
+    }
+  } catch (e) {
+    if (st) st.textContent = String(e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "检查更新"; }
+  }
+});
+$("btn-apply-update")?.addEventListener("click", async ()=>{
+  const btn = $("btn-apply-update"), st = $("update-status");
+  if (!confirm("将下载新版并替换当前程序，随后自动重启。继续？")) return;
+  if (btn) { btn.disabled = true; btn.textContent = "下载中…"; }
+  try {
+    const res = await invoke("apply_update");
+    if (st) st.textContent = res?.message || "已启动更新，稍后自动重启";
+    alert(res?.message || "更新包已就绪，程序即将退出并完成替换");
+  } catch (e) {
+    if (st) st.textContent = String(e);
+    alert(String(e));
+    if (btn) { btn.disabled = false; btn.textContent = "下载并更新"; }
+  }
 });
 /* 总览时间范围筛选 */
 document.querySelectorAll(".ov-preset").forEach((btn)=>{

@@ -112,6 +112,11 @@ powershell -File scripts\publish-release.ps1
 powershell -File scripts\publish-release.ps1 -Tag v2026.09.22 -Notes '本周改动说明'
 ```
 
+### 在线更新
+
+设置 → **系统 → 在线更新** →「检查更新」→「下载并更新」：对照 GitHub Releases 最新便携包，下载校验后自动替换 exe 并重启。  
+当前内置版本号与 Release tag 对齐（如 `v2026.09.22`）。
+
 同目录便携数据：
 
 ```text

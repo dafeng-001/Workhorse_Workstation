@@ -17,6 +17,7 @@ mod slack;
 mod startup;
 mod wechat_trace;
 mod todos;
+mod updater;
 mod weekly;
 mod widget_state;
 
@@ -1719,6 +1720,46 @@ async fn delete_gig(id: String) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+fn get_app_version() -> String {
+    updater::app_version()
+}
+
+#[tauri::command]
+async fn check_update() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let info = updater::check_update()?;
+        Ok(serde_json::to_value(&info).map_err(|e| e.to_string())?)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn apply_update(app: AppHandle<Wry>) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let info = updater::check_update()?;
+        if !info.has_update {
+            return Err("当前已是最新版本".into());
+        }
+        let path = updater::download_package(&info)?;
+        updater::stage_and_relaunch(&path)?;
+        // 退出当前进程，交给 apply_update.bat 替换并重启
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            std::process::exit(0);
+        });
+        let _ = app;
+        Ok(serde_json::json!({
+            "ok": true,
+            "message": format!("已下载 {}，正在替换并重启…", info.latest_tag),
+            "tag": info.latest_tag,
+        }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn open_log() -> Result<(), String> {
     let path = log::log_path();
     if !path.exists() {
@@ -1863,6 +1904,9 @@ pub fn run() {
             update_gig_status,
             delete_gig,
             open_log,
+            check_update,
+            apply_update,
+            get_app_version,
             list_weekly_history,
             read_weekly_file,
             list_known_authors,
