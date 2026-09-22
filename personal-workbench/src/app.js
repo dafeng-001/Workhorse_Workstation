@@ -128,45 +128,70 @@ function dateKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
 
-/* ---- 历史区间预览（并入总览） ---- */
-function rangeBounds(preset) {
+/* ---- 总览 · 时间范围（驱动整页） ---- */
+let ovRange = { kind: "week", start: "", end: "" };
+
+function rangeBoundsFor(kind) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const fmt = (d) => dateKey(d);
-  if (preset === "week") {
+  if (kind === "today") return [fmt(today), fmt(today), "今日"];
+  if (kind === "week" || kind === "last-week") {
     const dow = (today.getDay() + 6) % 7;
-    const start = new Date(today); start.setDate(today.getDate() - dow);
+    const offset = kind === "week" ? 0 : 7;
+    const start = new Date(today); start.setDate(today.getDate() - dow - offset);
     const end = new Date(start); end.setDate(start.getDate() + 6);
-    return [fmt(start), fmt(end)];
+    return [fmt(start), fmt(end), kind === "week" ? "本周" : "上周"];
   }
-  if (preset === "last-week") {
-    const dow = (today.getDay() + 6) % 7;
-    const start = new Date(today); start.setDate(today.getDate() - dow - 7);
-    const end = new Date(start); end.setDate(start.getDate() + 6);
-    return [fmt(start), fmt(end)];
+  if (kind === "month" || kind === "last-month") {
+    const delta = kind === "month" ? 0 : -1;
+    const start = new Date(today.getFullYear(), today.getMonth() + delta, 1);
+    const end = new Date(today.getFullYear(), today.getMonth() + delta + 1, 0);
+    return [fmt(start), fmt(end), kind === "month" ? "本月" : "上月"];
   }
-  if (preset === "month") {
-    const start = new Date(today.getFullYear(), today.getMonth(), 1);
-    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    return [fmt(start), fmt(end)];
+  if (kind === "d7" || kind === "d30") {
+    const n = kind === "d7" ? 7 : 30;
+    const start = new Date(today); start.setDate(today.getDate() - (n - 1));
+    return [fmt(start), fmt(today), `近 ${n} 天`];
   }
-  if (preset === "last-month") {
-    const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    const end = new Date(today.getFullYear(), today.getMonth(), 0);
-    return [fmt(start), fmt(end)];
-  }
-  const days = Number(preset) || 7;
-  const start = new Date(today); start.setDate(today.getDate() - (days - 1));
-  return [fmt(start), fmt(today)];
+  return [fmt(today), fmt(today), "自定义"];
 }
 
-function ensureRangeDefaults() {
-  const s = $("range-start"), e = $("range-end");
-  if (s && !s.value) [s.value, e.value] = rangeBounds("7");
-  return [s?.value || todayKey(), e?.value || todayKey()];
+function setOvRange(kind, start, end) {
+  let label = "自定义";
+  let s = start, e = end;
+  if (kind && kind !== "custom") {
+    const b = rangeBoundsFor(kind);
+    s = b[0]; e = b[1]; label = b[2];
+    ovRange.kind = kind;
+  } else {
+    ovRange.kind = "custom";
+  }
+  if (s > e) [s, e] = [e, s];
+  ovRange.start = s;
+  ovRange.end = e;
+  const se = $("range-start"), ee = $("range-end");
+  if (se) se.value = s;
+  if (ee) ee.value = e;
+  document.querySelectorAll(".ov-preset").forEach((b) => {
+    b.classList.toggle("primary", b.dataset.kind === ovRange.kind);
+  });
+  const meta = $("range-meta");
+  if (meta) meta.textContent = `${label} · ${s} ~ ${e} · 总览随时间范围切换`;
+  const tLabel = $("k-lines-label");
+  if (tLabel) tLabel.textContent = `${label}代码修改`;
 }
 
-/** 日期轴标签：少则 MM-DD，多则只标关键日，避免换行挤成一团 */
+async function loadOverviewRange() {
+  if (!ovRange.start) setOvRange("week");
+  try {
+    const res = await invoke("get_range_detail", { start: ovRange.start, end: ovRange.end });
+    applyRangeToOverview(res);
+  } catch (err) {
+    console.warn("range", err);
+  }
+}
+
 function dayTickLabel(date, i, n) {
   const s = String(date || "");
   const md = s.slice(5);
@@ -183,63 +208,68 @@ function fmtSecShort(s) {
   return fmtDur2(v);
 }
 
-async function loadRangePreview() {
-  const [start, end] = ensureRangeDefaults();
-  const btn = $("btn-range-load");
-  if (btn) { btn.disabled = true; btn.textContent = "…"; }
-  try {
-    const res = await invoke("get_range_detail", { start, end });
-    renderRangePreview(res);
-  } catch (err) {
-    alert(String(err));
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "查询"; }
-  }
-}
-
-function renderRangePreview(res) {
+function applyRangeToOverview(res) {
   if (!res) return;
   const g = res.git || {};
   const a = res.activity || {};
   const inp = res.input || {};
   const f = res.focus || {};
-  const add = Number(g.additions) || 0, del = Number(g.deletions) || 0;
-  setHtml(["rg-lines"], `<span class="pos">+${add}</span> <span class="neg">−${del}</span>`);
-  setMany(["rg-commits"], String(g.commits || 0));
-  setMany(["rg-confident"], a.confident_label || "—");
-  setMany(["rg-active"], a.active_label || "—");
-  setMany(["rg-sit"], a.max_sit_label || "—");
-  setMany(["rg-away"], `${a.away_gaps || 0} 次`);
-  setMany(["rg-keys"], Number(inp.keys || 0).toLocaleString());
-  setMany(["rg-locks"], String(inp.locks || 0));
-  setMany(["rg-focus"], `${f.focus_blocks || 0}/${f.fragments || 0}`);
-  setMany(["rg-days"], String(res.days || 0));
-  const meta = $("range-meta");
-  if (meta) {
-    const ret = Number(res.retention_days || 0);
-    meta.textContent = `${res.start} ~ ${res.end} · 保留 ${ret === 0 ? "永久" : ret + " 天"}`;
-  }
-  const note = $("rg-note");
-  if (note) {
-    note.textContent = (res.note || "") + (Number(f.wechat_fg_s || 0) > 0 ? ` · 微信前台 ${fmtDur2(f.wechat_fg_s)}` : "");
+
+  setHtml(["m-today"], fmtLines(g.additions, g.deletions));
+  setMany(["m-today-commit"], (g.commits ? `提交 ${g.commits} 次` : "区间暂无提交") + ` · ${res.days||0} 天有数据`);
+  setMany(["m-week"], a.confident_label || "—");
+  setMany(["m-week-commit"], `在线 ${a.active_label || "—"}`);
+  setMany(["m-online"], a.max_sit_label || "—");
+  setMany(["d-streak"], `离位 ${a.away_gaps || 0} 次`);
+  setMany(["f-today-m"], Number(inp.keys || 0).toLocaleString());
+  setMany(["f-today-c"], `锁屏 ${inp.locks || 0} · 点击 ${inp.clicks || 0}`);
+  setMany(["d-keys"], Number(inp.keys || 0).toLocaleString());
+  setMany(["d-locks"], inp.locks ?? 0);
+  setMany(["f-mouse"], `${a.away_gaps || 0} 次`);
+  setMany(["f-rhythm"], `${f.focus_blocks || 0} / ${f.fragments || 0}`);
+  setMany(["f-rhythm-label"], "区间合计");
+
+  const apps = res.apps || [];
+  const appEl = $("f-apps");
+  if (appEl) {
+    appEl.innerHTML = apps.length ? apps.map((x) => {
+      const max = Number(apps[0]?.seconds) || 1;
+      const pct = Math.max(4, Math.round(Number(x.seconds || 0) / max * 100));
+      const label = Number(x.seconds) < 60 ? fmtSecShort(x.seconds) : (x.label || fmtDur2(x.seconds || 0));
+      return `<div class="app-row">
+        <span class="nm">${escapeHtml(x.name)}</span>
+        <div class="bar"><i style="width:${pct}%"></i></div>
+        <span class="pct">${escapeHtml(label)}</span>
+      </div>`;
+    }).join("") : `<div class="ext-empty">区间内暂无前台记录</div>`;
   }
 
   const series = res.series || [];
   const n = series.length;
-  const codeEl = $("rg-code-bars");
+  const codeEl = $("trend-bars");
+  const sitEl = $("week-bars");
+  const hint = $("trend-hint");
+  if (hint) {
+    hint.innerHTML = `<i class="sw pos"></i>+行 <i class="sw neg"></i>−行 · ${res.start} ~ ${res.end}`;
+  }
   if (codeEl) {
     if (!n) {
       codeEl.innerHTML = `<div class="ext-empty" style="width:100%">区间内暂无数据</div>`;
+      codeEl.classList.remove("sparse");
     } else {
+      codeEl.classList.toggle("sparse", n <= 5);
       const maxAdd = Math.max(...series.map((d) => Number(d.additions) || 0), 1);
       const maxDel = Math.max(...series.map((d) => Number(d.deletions) || 0), 1);
+      // 条目多时隐藏柱顶数字，避免叠字；悬停看 title
+      const showVal = n <= 12;
       codeEl.innerHTML = series.map((d, i) => {
         const av = Number(d.additions) || 0, dv = Number(d.deletions) || 0;
-        const ah = av ? Math.max(3, Math.round(av / maxAdd * 48)) : 0;
-        const dh = dv ? Math.max(3, Math.round(dv / maxDel * 48)) : 0;
+        const ah = av ? Math.max(4, Math.min(48, Math.round(av / maxAdd * 48))) : 0;
+        const dh = dv ? Math.max(4, Math.min(48, Math.round(dv / maxDel * 48))) : 0;
         const total = av + dv;
+        const val = total ? "±" + total : "·";
         return `<div class="tcol" title="${escapeHtml(d.date)} +${av}/−${dv}">
-          <span class="tval">${total ? "±" + total : "·"}</span>
+          <span class="tval">${showVal ? val : ""}</span>
           <div class="ttrack dual">
             ${ah ? `<div class="tfill posfill" style="height:${ah}%"></div>` : ""}
             ${dh ? `<div class="tfill negfill" style="height:${dh}%"></div>` : ""}
@@ -249,19 +279,22 @@ function renderRangePreview(res) {
       }).join("");
     }
   }
-
-  const sitEl = $("rg-sit-bars");
   if (sitEl) {
     if (!n) {
       sitEl.innerHTML = `<div class="ext-empty" style="width:100%">区间内暂无数据</div>`;
+      sitEl.classList.remove("sparse");
     } else {
+      sitEl.classList.toggle("sparse", n <= 5);
       const maxS = Math.max(...series.map((d) => Math.max(Number(d.confident_s) || 0, Number(d.max_sit_s) || 0)), 1);
+      const showVal = n <= 12;
       sitEl.innerHTML = series.map((d, i) => {
         const conf = Number(d.confident_s) || 0, sit = Number(d.max_sit_s) || 0;
         const ch = conf ? Math.max(3, Math.round(conf / maxS * 100)) : 0;
         const sh = sit ? Math.max(3, Math.round(sit / maxS * 100)) : 0;
+        const peak = Math.max(conf, sit);
+        const val = peak ? fmtSecShort(peak) : "·";
         return `<div class="tcol" title="${escapeHtml(d.date)} 高置信 ${fmtDur2(conf)} · 在座 ${fmtDur2(sit)}">
-          <span class="tval">${(conf || sit) ? fmtSecShort(Math.max(conf, sit)) : "·"}</span>
+          <span class="tval">${showVal ? val : ""}</span>
           <div class="ttrack dual side">
             ${ch ? `<div class="tfill confill" style="height:${ch}%"></div>` : ""}
             ${sh ? `<div class="tfill sitfill" style="height:${sh}%"></div>` : ""}
@@ -270,21 +303,6 @@ function renderRangePreview(res) {
         </div>`;
       }).join("");
     }
-  }
-
-  const apps = res.apps || [];
-  const appEl = $("rg-apps");
-  if (appEl) {
-    appEl.innerHTML = apps.length ? apps.map((a) => {
-      const max = Number(apps[0]?.seconds) || 1;
-      const pct = Math.max(4, Math.round(Number(a.seconds || 0) / max * 100));
-      const label = Number(a.seconds) < 60 ? fmtSecShort(a.seconds) : (a.label || fmtDur2(a.seconds || 0));
-      return `<div class="app-row">
-        <span class="nm">${escapeHtml(a.name)}</span>
-        <div class="bar"><i style="width:${pct}%"></i></div>
-        <span class="pct">${escapeHtml(label)}</span>
-      </div>`;
-    }).join("") : `<div class="ext-empty">区间内暂无前台记录</div>`;
   }
 }
 
@@ -335,24 +353,18 @@ function render(dash) {
   $("generated-at").textContent = `更新于 ${dash.generated_at}` + (dash.depth==="today" ? " · 补全中" : "");
 
   const g = dash.git || {};
-  // 主指标 = 代码修改量（±行，可按扩展名过滤）；提交次数只作副信息
+  // 实时项：未提交 / 健康分；代码与在机等由时间范围 get_range_detail 驱动
   const exts = dash.config?.count_exts || [];
   const extNote = exts.length ? ` · 限 ${exts.slice(0,4).join("/")}${exts.length>4?"…":""}` : "";
-  setHtml(["m-today","m-today-c"], fmtLines(g.today_additions, g.today_deletions));
-  setMany(["m-today-commit","m-today-commit-c"],
-    (g.today_commits ? `提交 ${g.today_commits} 次` : "今日暂无提交") + extNote);
-  setHtml(["m-week","m-week-c"], fmtLines(g.week_additions, g.week_deletions));
-  setMany(["m-week-commit","m-week-commit-c"],
-    (g.week_commits ? `提交 ${g.week_commits} 次` : "本周暂无提交") + extNote);
   setMany(["m-dirty","m-dirty-c"], g.dirty_files ?? 0);
   setHtml(["m-dirty-delta","m-dirty-delta-c"], fmtLines(g.uncommitted_additions, g.uncommitted_deletions));
-
-  setMany(["m-online"], fmtDur(dash.activity_today?.active_seconds || 0));
-  const idle = Number(dash.idle_seconds)||0;
-  const thr = (dash.config?.sit_break_minutes || dash.config?.idle_threshold_minutes || 5)*60;
-  const idleEl = $("m-idle");
-  // overview streak filled by focus
-  if (idleEl) idleEl.textContent = idle < thr ? `活跃 · 空闲 ${fmtDur(idle)}` : `空闲 ${fmtDur(idle)}`;
+  // 开发页仍显示今/周（setMany 到 -c 后缀）
+  setHtml(["m-today-c"], fmtLines(g.today_additions, g.today_deletions));
+  setMany(["m-today-commit-c"],
+    (g.today_commits ? `提交 ${g.today_commits} 次` : "今日暂无提交") + extNote);
+  setHtml(["m-week-c"], fmtLines(g.week_additions, g.week_deletions));
+  setMany(["m-week-commit-c"],
+    (g.week_commits ? `提交 ${g.week_commits} 次` : "本周暂无提交") + extNote);
 
   const w = dash.weekly || {};
   const pill = $("m-weekly");
@@ -363,27 +375,14 @@ function render(dash) {
   setMany(["m-weekly-path"], w.path ? w.path.split(/[\\/]/).pop() : "");
 
   const repos = g.repos || [];
-  // 仓库表由 get_dev_detail 渲染（热力/分支）；这里仅保留总数兜底
   if ($("repo-count") && !$("repo-count").textContent) {
     $("repo-count").textContent = repos.length ? `${repos.length} 个` : "";
   }
 
-  const week = dash.activity_week || [];
-  const max = Math.max(...week.map((d)=>d.active_seconds||0), 1);
-  const tKey = todayKey();
-  $("week-bars").innerHTML = week.map((d) => {
-    const h = Math.max(2, Math.round(((d.active_seconds||0)/max)*100));
-    return `<div class="bar-col ${d.date===tKey?"today":""}">
-      <span class="bar-val">${fmtDur(d.active_seconds||0)}</span>
-      <div class="bar-track"><div class="bar-fill" style="height:${h}%"></div></div>
-      <span class="bar-label">${weekdayLabel(d.date)}</span>
-    </div>`;
-  }).join("");
-
   const files = dash.files || {};
-  setMany(["f-today-m","f-today-m2"], `今 ${files.today_modified ?? 0}`);
+  setMany(["f-today-m2"], `今 ${files.today_modified ?? 0}`);
   setMany(["f-week-m"], `周 ${files.week_modified ?? 0} · 月 ${files.month_modified ?? 0}`);
-  setMany(["f-today-c","f-today-c2"], `全量今日修改 ${files.today_modified ?? 0}`);
+  setMany(["f-today-c2"], `全量今日修改 ${files.today_modified ?? 0}`);
   setMany(["f-month-c"], `全量本月 ${files.month_modified ?? 0}`);
   setMany(["file-source"], files.note || files.source || "—");
 
@@ -624,37 +623,19 @@ async function loadWeeklyPreview() {
 }
 
 async function loadTrend() {
-  try {
-    const days = await invoke("get_history");
-    const el = $("trend-bars");
-    if (!el) return;
-    if (!days?.length) { el.innerHTML = `<div class="ext-empty" style="width:100%">暂无历史</div>`; return; }
-    const recent = days.slice(-7);
-    const vals = recent.map((d)=>(Number(d.additions)||0)+(Number(d.deletions)||0));
-    const max = Math.max(...vals,1);
-    const tKey = todayKey();
-    $("trend-hint").textContent = `${recent[0].date.slice(5)} – ${recent[recent.length-1].date.slice(5)}`;
-    el.innerHTML = recent.map((d,i)=>{
-      const n = vals[i];
-      const h = Math.max(0, Math.round((n/max)*100));
-      return `<div class="tcol ${d.date===tKey?"today":""}" title="${d.date} ±${n}">
-        <span class="tval">${n?"±"+n:"0"}</span>
-        <div class="ttrack"><div class="tfill" style="height:${n?h:0}%"></div></div>
-        <span class="tlabel">${String(d.date).slice(5)}</span>
-      </div>`;
-    }).join("");
-  } catch {}
+  await loadOverviewRange();
 }
 
 async function loadDaily() {
   try {
     const d = await invoke("get_daily");
     if (!d) return;
-    setMany(["d-keys","r-keys"], d.keys ?? 0);
-    setMany(["d-clicks","r-clicks"], `鼠标 ${d.clicks ?? 0}`);
-    setMany(["d-locks","r-locks"], d.locks ?? 0);
+    // 总览键入/锁屏/离位由时间范围驱动；此处只填健康/开发侧 id
+    setMany(["r-keys"], d.keys ?? 0);
+    setMany(["r-clicks"], `鼠标 ${d.clicks ?? 0}`);
+    setMany(["r-locks"], d.locks ?? 0);
     setMany(["d-unlocks","r-unlocks"], `解锁 ${d.unlocks ?? 0}`);
-    setMany(["d-streak","r-streak"], d.streak_label || d.max_streak_label || "—");
+    setMany(["r-streak"], d.streak_label || d.max_streak_label || "—");
     setMany(["d-work","r-work"], `累计 ${d.work_label || "—"}`);
   } catch {}
 }
@@ -666,29 +647,13 @@ async function loadFocus() {
     const px = Number(f.mouse_px)||0;
     const m = px * 0.000264;
     const mouseTxt = m >= 1000 ? `${(m/1000).toFixed(2)} km` : `${Math.round(m)} m`;
-    setMany(["f-mouse","r-mouse"], mouseTxt);
+    setMany(["r-mouse"], mouseTxt);
     setMany(["f-gaps","r-gaps"], `中断 ${f.idle_gaps ?? 0}`);
-    setMany(["f-rhythm"], `${f.focus_blocks ?? 0} / ${f.fragment_events ?? 0}`);
-    setMany(["f-rhythm-label","f-rhythm-label-2"], f.rhythm_label || "");
     setMany(["r-focus"], f.focus_blocks ?? 0);
     setMany(["r-frag"], f.fragment_events ?? 0);
     setMany(["r-score"], f.rhythm_score ?? "—");
-    const apps = f.apps || [];
-    const renderApps = (id) => {
-      const el = $(id);
-      if (!el) return;
-      if (!apps.length) { el.textContent = "暂无前台数据"; return; }
-      el.innerHTML = apps.map((a)=>{
-        const pct = Math.round(Number(a.pct)||0);
-        return `<div class="app-row" title="${escapeHtml(a.name)}">
-          <span class="nm">${escapeHtml(a.name)}</span>
-          <div class="bar"><i style="width:${Math.min(100,pct)}%"></i></div>
-          <span class="pct">${pct}%</span>
-        </div>`;
-      }).join("");
-    };
-    renderApps("f-apps");
-    renderApps("r-apps");
+    setMany(["f-rhythm-label-2"], f.rhythm_label || "");
+    // 总览 f-apps 由 get_range_detail 驱动，避免覆盖区间前台
   } catch {}
 }
 
@@ -755,7 +720,7 @@ async function refresh(opts = {}) {
     $("boot-overlay")?.classList.add("hidden");
   }
 
-  await Promise.allSettled([loadTrend(), loadDaily(), loadFocus(), loadHealth(false), loadRangePreview()]);
+  await Promise.allSettled([loadDaily(), loadFocus(), loadHealth(false), loadTrend()]);
   if (mode === "code") loadDevDetail().catch(()=>{});
 }
 
@@ -1347,23 +1312,29 @@ async function loadWeeklyHistory(preferPath) {
 $("btn-open-log")?.addEventListener("click", async ()=>{
   try { await invoke("open_log"); } catch (e) { alert(String(e)); }
 });
-/* 历史区间（总览内） */
-document.querySelectorAll(".range-preset").forEach((btn)=>{
+/* 总览时间范围筛选 */
+document.querySelectorAll(".ov-preset").forEach((btn)=>{
   btn.addEventListener("click", ()=>{
-    document.querySelectorAll(".range-preset").forEach((b)=>b.classList.remove("primary"));
-    btn.classList.add("primary");
-    const [s, e] = btn.dataset.preset
-      ? rangeBounds(btn.dataset.preset)
-      : rangeBounds(btn.dataset.days || "7");
-    const se = $("range-start"), ee = $("range-end");
-    if (se) se.value = s;
-    if (ee) ee.value = e;
-    loadRangePreview().catch(()=>{});
+    setOvRange(btn.dataset.kind || "week");
+    loadOverviewRange().catch(()=>{});
   });
 });
-$("btn-range-load")?.addEventListener("click", ()=>loadRangePreview().catch(()=>{}));
-$("range-start")?.addEventListener("change", ()=>loadRangePreview().catch(()=>{}));
-$("range-end")?.addEventListener("change", ()=>loadRangePreview().catch(()=>{}));
+$("btn-range-load")?.addEventListener("click", ()=>{
+  const s = $("range-start")?.value, e = $("range-end")?.value;
+  if (!s || !e) return;
+  setOvRange("custom", s, e);
+  loadOverviewRange().catch(()=>{});
+});
+$("range-start")?.addEventListener("change", ()=>{
+  const s = $("range-start")?.value, e = $("range-end")?.value;
+  if (s && e) { setOvRange("custom", s, e); loadOverviewRange().catch(()=>{}); }
+});
+$("range-end")?.addEventListener("change", ()=>{
+  const s = $("range-start")?.value, e = $("range-end")?.value;
+  if (s && e) { setOvRange("custom", s, e); loadOverviewRange().catch(()=>{}); }
+});
+// 启动时初始化本周范围
+setOvRange("week");
 $("btn-health")?.addEventListener("click", ()=>loadHealth(false));
 $("btn-health-llm")?.addEventListener("click", ()=>loadHealth(true));
 $("btn-health-llm-2")?.addEventListener("click", ()=>loadHealth(true, "-2"));

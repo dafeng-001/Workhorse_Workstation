@@ -42,34 +42,50 @@
 
     <!-- ============ 总览 ============ -->
     <section id="view-overview" class="view active">
+      <div class="ov-range">
+        <div class="row-actions ov-presets">
+          <button type="button" class="btn sm ov-preset" data-kind="today">今日</button>
+          <button type="button" class="btn sm ov-preset primary" data-kind="week">本周</button>
+          <button type="button" class="btn sm ov-preset" data-kind="d7">近 7 天</button>
+          <button type="button" class="btn sm ov-preset" data-kind="d30">近 30 天</button>
+          <button type="button" class="btn sm ov-preset" data-kind="last-week">上周</button>
+          <button type="button" class="btn sm ov-preset" data-kind="month">本月</button>
+          <button type="button" class="btn sm ov-preset" data-kind="last-month">上月</button>
+          <label class="ov-date">起 <input type="date" id="range-start" class="inline-input" /></label>
+          <label class="ov-date">止 <input type="date" id="range-end" class="inline-input" /></label>
+          <button type="button" id="btn-range-load" class="btn primary sm">应用</button>
+          <span class="hint" id="range-meta">本周 · 总览随时间范围切换</span>
+        </div>
+      </div>
+
       <div class="kpis k6">
-        <article class="kpi">
-          <span class="kpi-label">今日修改量</span>
+        <article class="kpi accent">
+          <span class="kpi-label" id="k-lines-label">区间代码修改</span>
           <strong class="kpi-value sm" id="m-today">—</strong>
           <span class="kpi-sub" id="m-today-commit">—</span>
         </article>
         <article class="kpi">
-          <span class="kpi-label">本周修改量</span>
+          <span class="kpi-label">高置信在机</span>
           <strong class="kpi-value sm" id="m-week">—</strong>
           <span class="kpi-sub" id="m-week-commit">—</span>
         </article>
         <article class="kpi">
-          <span class="kpi-label">未提交</span>
-          <strong class="kpi-value" id="m-dirty">—</strong>
-          <span class="kpi-sub" id="m-dirty-delta">—</span>
+          <span class="kpi-label">最长连续在座</span>
+          <strong class="kpi-value sm" id="m-online">—</strong>
+          <span class="kpi-sub" id="d-streak">—</span>
         </article>
         <article class="kpi">
-          <span class="kpi-label">今日文件</span>
+          <span class="kpi-label">键入</span>
           <strong class="kpi-value" id="f-today-m">—</strong>
           <span class="kpi-sub" id="f-today-c">—</span>
         </article>
         <article class="kpi">
-          <span class="kpi-label">在线 / 连续</span>
-          <strong class="kpi-value sm" id="m-online">—</strong>
-          <span class="kpi-sub" id="d-streak">—</span>
+          <span class="kpi-label">未提交 · 实时</span>
+          <strong class="kpi-value" id="m-dirty">—</strong>
+          <span class="kpi-sub" id="m-dirty-delta">—</span>
         </article>
         <article class="kpi accent">
-          <span class="kpi-label">健康分</span>
+          <span class="kpi-label">健康分 · 今日</span>
           <strong class="kpi-value" id="h-score">—</strong>
           <span class="kpi-sub" id="h-level">—</span>
         </article>
@@ -78,21 +94,24 @@
       <div class="grid-2">
         <section class="panel">
           <header class="panel-head">
-            <h2>近 7 天代码量</h2>
-            <span class="hint" id="trend-hint"></span>
+            <h2>按日代码量</h2>
+            <span class="hint" id="trend-hint"><i class="sw pos"></i>+行 <i class="sw neg"></i>−行</span>
           </header>
           <div id="trend-bars" class="trend-row"></div>
         </section>
         <section class="panel">
-          <header class="panel-head"><h2>本周在线</h2></header>
-          <div id="week-bars" class="bars compact"></div>
+          <header class="panel-head">
+            <h2>按日在机 / 在座</h2>
+            <span class="hint"><i class="sw conf"></i>高置信 <i class="sw sit"></i>最长连续在座</span>
+          </header>
+          <div id="week-bars" class="trend-row"></div>
         </section>
       </div>
 
       <div class="grid-2">
         <section class="panel">
           <header class="panel-head">
-            <h2>今日节奏</h2>
+            <h2>区间节奏与前台</h2>
             <span class="hint" id="f-rhythm-label"></span>
           </header>
           <div class="focus-grid">
@@ -106,7 +125,7 @@
                 <strong class="dv" id="d-locks">—</strong>
               </div>
               <div class="focus-item">
-                <span class="dl">鼠标</span>
+                <span class="dl">离位</span>
                 <strong class="dv" id="f-mouse">—</strong>
               </div>
               <div class="focus-item">
@@ -122,7 +141,7 @@
         </section>
         <section class="panel">
           <header class="panel-head">
-            <h2>健康提示</h2>
+            <h2>健康提示 · 今日</h2>
             <div class="row-actions">
               <button type="button" id="btn-health" class="btn sm">本地</button>
               <button type="button" id="btn-health-llm" class="btn sm primary">AI</button>
@@ -132,67 +151,11 @@
           <p class="hint path" id="h-source"></p>
         </section>
       </div>
-
-      <!-- 历史区间：并入总览（回放任意时间段） -->
-      <section class="panel range-panel">
-        <header class="panel-head">
-          <h2>历史区间 · 工作回放</h2>
-          <div class="row-actions">
-            <button type="button" class="btn sm range-preset primary" data-days="7">近 7 天</button>
-            <button type="button" class="btn sm range-preset" data-days="30">近 30 天</button>
-            <button type="button" class="btn sm range-preset" data-preset="week">本周</button>
-            <button type="button" class="btn sm range-preset" data-preset="last-week">上周</button>
-            <button type="button" class="btn sm range-preset" data-preset="month">本月</button>
-            <button type="button" class="btn sm range-preset" data-preset="last-month">上月</button>
-          </div>
-        </header>
-        <div class="range-controls">
-          <label>起 <input type="date" id="range-start" class="inline-input" /></label>
-          <label>止 <input type="date" id="range-end" class="inline-input" /></label>
-          <button type="button" id="btn-range-load" class="btn primary sm">查询</button>
-          <span class="hint" id="range-meta">默认近 7 天 · 数据本地 metrics.sqlite</span>
-        </div>
-        <div class="range-chips" id="rg-chips">
-          <span class="chip">代码 <b id="rg-lines">—</b></span>
-          <span class="chip">提交 <b id="rg-commits">—</b></span>
-          <span class="chip">高置信 <b id="rg-confident">—</b></span>
-          <span class="chip">在线 <b id="rg-active">—</b></span>
-          <span class="chip">连续在座 <b id="rg-sit">—</b></span>
-          <span class="chip">离位 <b id="rg-away">—</b></span>
-          <span class="chip">键入 <b id="rg-keys">—</b></span>
-          <span class="chip">锁屏 <b id="rg-locks">—</b></span>
-          <span class="chip">专注/碎片 <b id="rg-focus">—</b></span>
-          <span class="chip">有数据 <b id="rg-days">—</b></span>
-        </div>
-        <div class="grid-2 range-charts">
-          <section class="panel inner">
-            <header class="panel-head">
-              <h2>按日代码量</h2>
-              <span class="hint"><i class="sw pos"></i>+行 <i class="sw neg"></i>−行</span>
-            </header>
-            <div id="rg-code-bars" class="trend-row"></div>
-          </section>
-          <section class="panel inner">
-            <header class="panel-head">
-              <h2>按日在机 / 在座</h2>
-              <span class="hint"><i class="sw conf"></i>高置信 <i class="sw sit"></i>最长连续在座</span>
-            </header>
-            <div id="rg-sit-bars" class="trend-row"></div>
-          </section>
-        </div>
-        <div class="range-foot">
-          <div class="range-apps">
-            <span class="dl">区间前台 Top</span>
-            <div id="rg-apps" class="app-list"></div>
-          </div>
-          <p class="hint" id="rg-note">区间汇总来自本地日表；代码行数可在无记录时从 git 现算。</p>
-        </div>
-      </section>
     </section>
 
     <!-- ============ 开发范围 ============ -->
     <section id="view-code" class="view">
-      <div class="kpis">
+      <div class="kpis k5">
         <article class="kpi">
           <span class="kpi-label">未提交文件</span>
           <strong class="kpi-value" id="m-dirty-c">—</strong>
@@ -287,7 +250,7 @@
 
     <!-- ============ 办公范围 ============ -->
     <section id="view-files" class="view">
-      <div class="kpis">
+      <div class="kpis k5">
         <article class="kpi">
           <span class="kpi-label">今日办公文档</span>
           <strong class="kpi-value" id="office-today">—</strong>
@@ -373,7 +336,7 @@
 
     <!-- ============ 健康范围 ============ -->
     <section id="view-rhythm" class="view">
-      <div class="kpis">
+      <div class="kpis k5">
         <article class="kpi accent">
           <span class="kpi-label">健康分</span>
           <strong class="kpi-value" id="h-today-score">—</strong>
