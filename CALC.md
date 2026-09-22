@@ -205,4 +205,4 @@ effective_repos（扫描 + 手动路径）
 | 2026-09-21 | 摸鱼分类 | 前台改存进程名（tick×3s）；IDE/工作 IM/系统壳不计摸鱼；浏览器标题命中休闲站才计入；关键字扩充 |
 | 2026-09-21 | 指标落盘 | `metrics.sqlite` 按日 UPSERT；旧 JSON 迁移；`metrics_retention_days` 默认 0=永久；去掉 60 天硬截断 |
 | 2026-09-22 | 周报提醒 / 通知 | 托盘周报定时提醒（`weekly_remind*`）；`quiet_toasts` 角标通知替代 alert，可 × 收起 |
-| 2026-09-22 | 周报提醒 / 通知 | 托盘周报定时提醒；应用内 quiet_toasts 角标通知替代 alert |
+| 2026-09-22 | 周报提醒 / 通知 | 托盘周报定时提醒；应用内 quiet_toasts 角标通知替代 alert，可 × 收起 |
