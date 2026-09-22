@@ -1,4 +1,4 @@
-﻿const invoke = (...a) => window.__TAURI__.core.invoke(...a);
+const invoke = (...a) => window.__TAURI__.core.invoke(...a);
 const $ = (id) => document.getElementById(id);
 
 function escapeHtml(s) {
@@ -18,23 +18,99 @@ function ensureNotifyDom() {
   stack.className = "toast-stack";
   stack.hidden = true;
   document.body.appendChild(stack);
+  const edge = document.createElement("button");
+  edge.type = "button";
+  edge.id = "toast-edge";
+  edge.className = "toast-edge";
+  edge.title = "滑出通知";
+  edge.hidden = true;
+  edge.innerHTML = `<span class="toast-edge-n">0</span><span class="toast-edge-t">通知</span>`;
+  edge.addEventListener("mouseenter", () => peekToasts(true));
+  edge.addEventListener("click", () => { collapseToasts(false); peekToasts(true); });
+  document.body.appendChild(edge);
+  // 右缘滑动 / 贴近时滑出
+  document.addEventListener("mousemove", (ev) => {
+    if (!window.__toastsCollapsed) return;
+    if (ev.clientX >= window.innerWidth - 18) peekToasts(true);
+  });
+  // 滑出后移开鼠标，若处于收起模式则收回
+  stack.addEventListener("mouseleave", () => {
+    setTimeout(() => {
+      if (!window.__toastsCollapsed) return;
+      if (stack.matches(":hover") || $("toast-edge")?.matches(":hover")) return;
+      peekToasts(false);
+    }, 480);
+  });
+  const bar = document.createElement("div");
+  bar.className = "toast-bar";
+  bar.innerHTML = `<button type="button" class="toast-peek">滑出</button><button type="button" class="toast-hide">收起</button>`;
+  bar.querySelector(".toast-hide").addEventListener("click", () => {
+    collapseToasts(true);
+    peekToasts(false);
+  });
+  bar.querySelector(".toast-peek").addEventListener("click", () => peekToasts(true));
+  stack.appendChild(bar);
+}
+
+function syncToastEdge() {
+  const stack = $("toast-stack");
+  const edge = $("toast-edge");
+  if (!stack || !edge) return;
+  const n = stack.querySelectorAll(".toast-item").length;
+  const collapsed = !!window.__toastsCollapsed && n > 0;
+  stack.hidden = n === 0 && !collapsed;
+  edge.hidden = !collapsed || n === 0;
+  const num = edge.querySelector(".toast-edge-n");
+  if (num) num.textContent = String(n);
+  stack.classList.toggle("collapsed", collapsed);
+  edge.classList.toggle("show", !edge.hidden);
+}
+
+function collapseToasts(collapsed) {
+  window.__toastsCollapsed = !!collapsed;
+  syncToastEdge();
+}
+
+function peekToasts(show) {
+  const stack = $("toast-stack");
+  if (!stack) return;
+  if (show) {
+    window.__toastsCollapsed = false;
+    stack.classList.add("peek");
+    stack.hidden = false;
+    syncToastEdge();
+  } else {
+    stack.classList.remove("peek");
+    if (window.__toastsCollapsed) syncToastEdge();
+  }
 }
 
 function pushNotify(msg, kind) {
   ensureNotifyDom();
   const stack = $("toast-stack");
-  const id = "nt-" + (++notifySeq);
   const el = document.createElement("div");
   el.className = "toast-item" + (kind ? " " + kind : "");
-  el.id = id;
-  el.innerHTML = `<span class="toast-msg"></span><button type="button" class="toast-x" title="关闭">×</button>`;
+  el.innerHTML = `<span class="toast-msg"></span><button type="button" class="toast-x" title="收起">×</button>`;
   el.querySelector(".toast-msg").textContent = String(msg ?? "");
-  el.querySelector(".toast-x").addEventListener("click", () => el.remove());
+  el.querySelector(".toast-x").addEventListener("click", () => { el.remove(); syncToastEdge(); });
+  while (stack.querySelectorAll(".toast-item:not(.toast-confirm)").length >= 3) {
+    const old = stack.querySelector(".toast-item:not(.toast-confirm)");
+    if (!old) break;
+    old.remove();
+  }
   stack.appendChild(el);
-  stack.hidden = false;
+  // 有通知时若处于收起态，贴边滑出一下再收回
+  if (window.__toastsCollapsed) {
+    peekToasts(true);
+    setTimeout(() => { if (window.__toastsCollapsed) peekToasts(false); }, 2200);
+  }
+  syncToastEdge();
   notifyHistory.unshift({ t: Date.now(), msg: String(msg ?? ""), kind: kind || "" });
   if (notifyHistory.length > 30) notifyHistory.pop();
-  setTimeout(() => { el.classList.add("fade"); setTimeout(() => el.remove(), 280); }, 4200);
+  setTimeout(() => {
+    el.classList.add("fade");
+    setTimeout(() => { el.remove(); syncToastEdge(); }, 220);
+  }, 3200);
 }
 
 function alertMsg(msg) {
@@ -42,9 +118,23 @@ function alertMsg(msg) {
   else alert(String(msg));
 }
 
-function confirmMsg(msg) {
-  // 需要阻塞确认的场景仍用系统 confirm（破坏性操作）
-  return confirm(String(msg));
+/** 非阻塞确认：右下角一条，可点确定/取消 */
+function confirmMsg(msg, onYes) {
+  if (typeof onYes !== "function") {
+    return confirm(String(msg));
+  }
+  ensureNotifyDom();
+  const bar = document.createElement("div");
+  bar.className = "toast-item toast-confirm";
+  bar.innerHTML = `<span class="toast-msg"></span><button type="button" class="toast-yes">确定</button><button type="button" class="toast-x">取消</button>`;
+  bar.querySelector(".toast-msg").textContent = String(msg ?? "");
+  const close = () => { bar.remove(); syncToastEdge(); };
+  bar.querySelector(".toast-yes").addEventListener("click", () => { close(); onYes(true); });
+  bar.querySelector(".toast-x").addEventListener("click", () => { close(); onYes(false); });
+  const stack = $("toast-stack");
+  stack.appendChild(bar);
+  peekToasts(true);
+  syncToastEdge();
 }
 
 let mode = "overview";
@@ -1391,19 +1481,21 @@ $("btn-check-update")?.addEventListener("click", async ()=>{
     if (btn) { btn.disabled = false; btn.textContent = "检查更新"; }
   }
 });
-$("btn-apply-update")?.addEventListener("click", async ()=>{
+$("btn-apply-update")?.addEventListener("click", ()=>{
   const btn = $("btn-apply-update"), st = $("update-status");
-  if (!confirmMsg("将下载新版并替换当前程序，随后自动重启。继续？")) return;
-  if (btn) { btn.disabled = true; btn.textContent = "下载中…"; }
-  try {
-    const res = await invoke("apply_update");
-    if (st) st.textContent = res?.message || "已启动更新，稍后自动重启";
-    alertMsg(res?.message || "更新包已就绪，程序即将退出并完成替换");
-  } catch (e) {
-    if (st) st.textContent = String(e);
-    alertMsg(String(e));
-    if (btn) { btn.disabled = false; btn.textContent = "下载并更新"; }
-  }
+  confirmMsg("下载新版并替换当前程序后自动重启？", async (ok) => {
+    if (!ok) return;
+    if (btn) { btn.disabled = true; btn.textContent = "下载中…"; }
+    try {
+      const res = await invoke("apply_update");
+      if (st) st.textContent = res?.message || "已启动更新，稍后自动重启";
+      alertMsg(res?.message || "更新包已就绪，程序即将退出并完成替换");
+    } catch (e) {
+      if (st) st.textContent = String(e);
+      alertMsg(String(e));
+      if (btn) { btn.disabled = false; btn.textContent = "下载并更新"; }
+    }
+  });
 });
 /* 总览时间范围筛选 */
 document.querySelectorAll(".ov-preset").forEach((btn)=>{

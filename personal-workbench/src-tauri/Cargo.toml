@@ -1,6 +1,6 @@
 ﻿[package]
 name = "personal-workbench"
-version = "0.0.27"
+version = "0.0.3"
 description = "牛马工作台：代码提交、写作量、在线时长、周报、待办与接单收入"
 authors = ["you"]
 edition = "2021"
