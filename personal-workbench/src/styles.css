@@ -995,3 +995,51 @@ body.loading .kpi-value { color: var(--ink-faint); }
   color: var(--ink-dim); font-size: 11px; cursor: pointer; padding: 3px 8px; border-radius: 6px;
 }
 .toast-bar button:hover { color: var(--ink); border-color: rgba(74,163,255,0.45); }
+
+/* ===== 沉浸式样式 ===== */
+html, body {
+  background: radial-gradient(1200px 600px at 20% -10%, rgba(74,163,255,0.08), transparent 55%),
+              radial-gradient(900px 500px at 100% 0%, rgba(139,124,246,0.06), transparent 50%),
+              var(--bg, #0b1220) !important;
+}
+.shell { background: transparent !important; }
+.top {
+  background: linear-gradient(180deg, rgba(11,18,32,0.92), rgba(11,18,32,0.55) 70%, transparent) !important;
+  border-bottom-color: transparent !important;
+  backdrop-filter: blur(10px);
+  position: sticky; top: 0; z-index: 50;
+}
+.view { padding-top: 8px; }
+.panel, .kpi, .ov-range {
+  background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012)) !important;
+  border-color: rgba(255,255,255,0.04) !important;
+  box-shadow: none !important;
+  border-radius: 14px !important;
+}
+.grid-2 { gap: 14px !important; }
+.panel + .panel { margin: 0; }
+.panel-head {
+  border-bottom-color: rgba(255,255,255,0.03) !important;
+  padding-bottom: 8px;
+}
+.panel-head h2 { letter-spacing: 0.02em; }
+.kpi {
+  border: 1px solid transparent !important;
+  background: rgba(255,255,255,0.03) !important;
+}
+.kpi.accent {
+  background: linear-gradient(145deg, rgba(74,163,255,0.12), rgba(255,255,255,0.02)) !important;
+  border-color: rgba(74,163,255,0.18) !important;
+}
+.trend-row .ttrack { background: rgba(255,255,255,0.03) !important; border-color: transparent !important; }
+.view, .grid-2, .kpis { background: transparent !important; }
+hr, .md-hr { border-color: rgba(255,255,255,0.04) !important; }
+
+.update-progress { display: flex; align-items: center; gap: 10px; margin: 8px 0 4px; }
+.update-progress-track {
+  flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden;
+}
+.update-progress-track > i {
+  display: block; height: 100%; width: 0%; border-radius: inherit;
+  background: linear-gradient(90deg, #2f7fc4, #6bb8ff); transition: width 0.2s ease;
+}

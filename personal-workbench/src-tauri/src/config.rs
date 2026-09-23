@@ -52,6 +52,9 @@ pub struct Config {
     /// 应用内提示用角标通知而非 alert 弹窗
     #[serde(default = "default_true")]
     pub quiet_toasts: bool,
+    /// 启动自动检测网络并下载新版（带进度）
+    #[serde(default = "default_true")]
+    pub auto_update: bool,
     #[serde(default = "default_dirty_warn")]
     pub dirty_warn_threshold: u32,
     /// Repos included in weekly report (path fragments / names). Empty = all configured repos.
@@ -172,6 +175,7 @@ impl Default for Config {
             weekly_remind_day: default_weekly_remind_day(),
             weekly_remind_hour: default_weekly_remind_hour(),
             quiet_toasts: true,
+            auto_update: true,
             dirty_warn_threshold: default_dirty_warn(),
             weekly_repos: Vec::new(),
             llm_api_base: String::new(),

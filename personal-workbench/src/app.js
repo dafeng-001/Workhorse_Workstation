@@ -883,6 +883,7 @@ function openConfig(cfg) {
   if ($("cfg-weekly-remind")) $("cfg-weekly-remind").checked = cfg.weekly_remind !== false;
   if ($("cfg-weekly-remind-day")) $("cfg-weekly-remind-day").value = cfg.weekly_remind_day ?? 5;
   if ($("cfg-weekly-remind-hour")) $("cfg-weekly-remind-hour").value = cfg.weekly_remind_hour ?? 16;
+  if ($("cfg-auto-update")) $("cfg-auto-update").checked = cfg.auto_update !== false;
   if ($("cfg-quiet-toasts")) {
     $("cfg-quiet-toasts").checked = cfg.quiet_toasts !== false;
     notifyQuiet = $("cfg-quiet-toasts").checked;
@@ -1012,6 +1013,7 @@ async function saveConfigFromForm() {
     weekly_remind_day: Math.min(7, Math.max(1, Number($("cfg-weekly-remind-day")?.value)||5)),
     weekly_remind_hour: Math.min(23, Math.max(0, Number($("cfg-weekly-remind-hour")?.value)||16)),
     quiet_toasts: $("cfg-quiet-toasts")?.checked !== false,
+    auto_update: $("cfg-auto-update")?.checked !== false,
     // 运行时字段从上一次配置保留，避免设置保存把挂件位置等冲掉
     weekly_dir: prev?.weekly_dir || "weekly",
     data_dir: prev?.data_dir || "data",
@@ -1462,41 +1464,89 @@ async function refreshAppVersion() {
     setMany(["app-version"], v || "—");
   } catch { setMany(["app-version"], "—"); }
 }
-$("btn-check-update")?.addEventListener("click", async ()=>{
-  const btn = $("btn-check-update"), st = $("update-status"), apply = $("btn-apply-update");
-  if (btn) { btn.disabled = true; btn.textContent = "检查中…"; }
+function bindUpdateProgress() {
   try {
-    const info = await invoke("check_update");
-    if (!info) { if (st) st.textContent = "检查失败"; return; }
-    if (info.has_update) {
-      if (st) st.textContent = `发现新版 ${info.latest_tag}（当前 ${info.current_version}）${info.notes ? " · " + String(info.notes).slice(0,80) : ""}`;
-      if (apply) { apply.hidden = false; apply.dataset.url = info.download_url || ""; apply.dataset.tag = info.latest_tag || ""; }
-    } else {
-      if (st) st.textContent = `已是最新（${info.current_version} / ${info.latest_tag || "无 tag"}）`;
-      if (apply) apply.hidden = true;
+    const ev = window.__TAURI__?.event;
+    if (!ev?.listen) return;
+    ev.listen("update-stage", (e) => {
+      const p = e.payload || {};
+      const box = $("update-progress"), bar = $("update-progress-bar"), txt = $("update-progress-text");
+      const st = $("update-status");
+      if (box) box.hidden = false;
+      const pct = Number(p.pct) || 0;
+      if (bar) bar.style.width = Math.min(100, pct) + "%";
+      const stageMap = { network: "① 检测网络", check: "② 检查版本", download: "③ 下载更新包", apply: "④ 准备替换", done: "完成，即将重启" };
+      const label = stageMap[p.stage] || p.stage || "";
+      const mb = p.total ? ` · ${Math.round((p.got||0)/1024/1024)}/${Math.round((p.total||0)/1024/1024)}MB` : "";
+      if (txt) txt.textContent = `${label} ${pct}%${mb}`;
+      if (st && p.stage) st.textContent = `${label}…`;
+    });
+  } catch {}
+}
+bindUpdateProgress();
+
+function setUpdateBusy(busy) {
+  const btn = $("btn-run-update");
+  if (!btn) return;
+  btn.disabled = !!busy;
+  btn.textContent = busy ? "更新中…" : "检查并更新";
+}
+
+function resetUpdateUi(msg, ok) {
+  setUpdateBusy(false);
+  const box = $("update-progress");
+  const bar = $("update-progress-bar");
+  const st = $("update-status");
+  if (st) st.textContent = msg || "";
+  if (ok) {
+    if (bar) bar.style.width = "100%";
+  } else if (box) {
+    // 失败：收起进度条，避免「卡在一半」
+    box.hidden = true;
+    if (bar) bar.style.width = "0%";
+  }
+}
+
+/** 点按钮：测网 → 查版 → 下载 → 成功则重启；失败则提示并可重试 */
+$("btn-run-update")?.addEventListener("click", async () => {
+  setUpdateBusy(true);
+  const st = $("update-status");
+  const box = $("update-progress");
+  const bar = $("update-progress-bar");
+  if (box) box.hidden = true;
+  if (bar) bar.style.width = "0%";
+  try {
+    if (st) st.textContent = "① 检测网络…";
+    const n = await invoke("check_network");
+    if (!n?.ok) {
+      const msg = (n?.message || "网络不可用") + (n?.hint ? " · " + n.hint : "");
+      resetUpdateUi("失败：网络不可达，可点「检查并更新」重试", false);
+      alertMsg(msg + "（可重试）", "err");
+      return;
     }
+    if (st) st.textContent = "② 检查版本…";
+    const info = await invoke("check_update");
+    if (!info?.has_update) {
+      resetUpdateUi(`已是最新版本 ${info?.current_version || ""}`, true);
+      alertMsg("已是最新版本");
+      return;
+    }
+    if (st) st.textContent = `③ 下载 ${info.latest_tag}…`;
+    if (box) box.hidden = false;
+    const res = await invoke("apply_update");
+    // 成功：进程会在极短时间内退出并替换重启
+    resetUpdateUi("④ 更新包就绪，正在替换并重启…", true);
+    alertMsg(res?.message || `已下载 ${info.latest_tag}，正在替换并重启…`);
   } catch (e) {
-    if (st) st.textContent = String(e);
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "检查更新"; }
+    const msg = String(e);
+    resetUpdateUi("失败：" + msg.slice(0, 80) + " · 可点「检查并更新」重试", false);
+    alertMsg("更新失败：" + msg + "（可重试）", "err");
   }
 });
-$("btn-apply-update")?.addEventListener("click", ()=>{
-  const btn = $("btn-apply-update"), st = $("update-status");
-  confirmMsg("下载新版并替换当前程序后自动重启？", async (ok) => {
-    if (!ok) return;
-    if (btn) { btn.disabled = true; btn.textContent = "下载中…"; }
-    try {
-      const res = await invoke("apply_update");
-      if (st) st.textContent = res?.message || "已启动更新，稍后自动重启";
-      alertMsg(res?.message || "更新包已就绪，程序即将退出并完成替换");
-    } catch (e) {
-      if (st) st.textContent = String(e);
-      alertMsg(String(e));
-      if (btn) { btn.disabled = false; btn.textContent = "下载并更新"; }
-    }
-  });
-});
+
+(async function bootUpdateUi(){
+  await refreshAppVersion();
+})();
 /* 总览时间范围筛选 */
 document.querySelectorAll(".ov-preset").forEach((btn)=>{
   btn.addEventListener("click", ()=>{

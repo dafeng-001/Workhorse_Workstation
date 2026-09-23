@@ -1820,6 +1820,15 @@ fn get_app_version() -> String {
 }
 
 #[tauri::command]
+async fn check_network() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        Ok(serde_json::to_value(updater::check_network()).map_err(|e| e.to_string())?)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn check_update() -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let info = updater::check_update()?;
@@ -1831,19 +1840,40 @@ async fn check_update() -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 async fn apply_update(app: AppHandle<Wry>) -> Result<serde_json::Value, String> {
+    let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Emitter;
+        let _ = app2.emit("update-stage", serde_json::json!({ "stage": "network", "pct": 0 }));
+        let net = updater::check_network();
+        if !net.ok {
+            return Err(format!("{} {}", net.message, net.hint));
+        }
+        let _ = app2.emit("update-stage", serde_json::json!({ "stage": "check", "pct": 5 }));
         let info = updater::check_update()?;
         if !info.has_update {
             return Err("当前已是最新版本".into());
         }
-        let path = updater::download_package(&info)?;
+        let _ = app2.emit(
+            "update-stage",
+            serde_json::json!({ "stage": "download", "pct": 10, "total": info.size }),
+        );
+        let path = {
+            let app3 = app2.clone();
+            updater::download_package_progress(&info, move |got, total| {
+                let pct = if total > 0 { 10 + (got * 80 / total.max(1)) as u32 } else { 50 };
+                let _ = app3.emit(
+                    "update-stage",
+                    serde_json::json!({ "stage": "download", "pct": pct.min(90), "got": got, "total": total }),
+                );
+            })?
+        };
+        let _ = app2.emit("update-stage", serde_json::json!({ "stage": "apply", "pct": 95 }));
         updater::stage_and_relaunch(&path)?;
-        // 退出当前进程，交给 apply_update.bat 替换并重启
         std::thread::spawn(|| {
             std::thread::sleep(std::time::Duration::from_millis(400));
             std::process::exit(0);
         });
-        let _ = app;
+        let _ = app2.emit("update-stage", serde_json::json!({ "stage": "done", "pct": 100 }));
         Ok(serde_json::json!({
             "ok": true,
             "message": format!("已下载 {}，正在替换并重启…", info.latest_tag),
@@ -2000,6 +2030,7 @@ pub fn run() {
             delete_gig,
             open_log,
             check_update,
+            check_network,
             apply_update,
             get_app_version,
             list_weekly_history,
