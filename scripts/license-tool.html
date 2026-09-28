@@ -1,0 +1,222 @@
+<!-- AI生成 -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>牛马工作台 · 授权工具</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 28px 20px 40px;
+    font: 14px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: radial-gradient(900px 500px at 15% -10%, rgba(74,163,255,.12), transparent 50%),
+                radial-gradient(700px 400px at 100% 0%, rgba(139,124,246,.1), transparent 45%),
+                #0c1220;
+    color: #e8eef7; min-height: 100vh;
+  }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  .sub { color: #8a9bb0; margin: 0 0 22px; font-size: 13px; }
+  .card {
+    background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.06);
+    border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; max-width: 820px;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 10px; }
+  label { display: block; margin: 8px 0 4px; color: #9aabbf; font-size: 12.5px; }
+  input, textarea, select {
+    width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,.1); background: #0a101c; color: #e8eef7;
+    font: 12.5px/1.4 ui-monospace, Consolas, monospace;
+  }
+  textarea { min-height: 64px; resize: vertical; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 160px; }
+  button {
+    margin-top: 10px; margin-right: 8px; padding: 8px 14px; border-radius: 9px;
+    border: 1px solid rgba(74,163,255,.35); background: rgba(74,163,255,.18);
+    color: #dcefff; cursor: pointer; font-weight: 600;
+  }
+  button:hover { background: rgba(74,163,255,.28); }
+  button.ghost { background: transparent; border-color: rgba(255,255,255,.12); color: #9aabbf; }
+  .out {
+    margin-top: 10px; padding: 10px 12px; border-radius: 8px;
+    background: #070c14; border: 1px solid rgba(255,255,255,.06);
+    word-break: break-all; font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+  }
+  .ok { color: #6dcea0; }
+  .err { color: #ff8f8f; }
+  .hint { color: #7d8fa3; font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<p data-aigc-mark="1" style="margin:0 0 8px;font-size:10px;line-height:1.3;color:#6b6560;font-weight:400;">AI生成</p>
+
+  <h1>牛马工作台 · 可视化授权工具</h1>
+  <p class="sub">本地运行，不联网。生成激活码、更新包密钥、绑定机器的 update.wmp</p>
+
+  <section class="card">
+    <h2>1 · 机器码</h2>
+    <label>客户机器码（应用设置 → 激活 Pro 可复制）</label>
+    <input id="machine" placeholder="例如 bf77fbf761c6730e（可空=不限机器）" />
+    <button type="button" id="btn-mac">填入本页示例 / 校验格式</button>
+    <p class="hint">激活码绑定机器后，只能在该机器激活；更新包也按该机器加密。</p>
+  </section>
+
+  <section class="card">
+    <h2>2 · 生成激活码</h2>
+    <div class="row">
+      <div>
+        <label>到期日（可空=永久）</label>
+        <input id="exp" type="date" />
+      </div>
+      <div>
+        <label>版本 tier</label>
+        <input id="tier" value="pro" />
+      </div>
+    </div>
+    <button type="button" id="btn-lic">生成激活码</button>
+    <button type="button" class="ghost" id="btn-copy-lic">复制</button>
+    <div class="out" id="lic-out">—</div>
+  </section>
+
+  <section class="card">
+    <h2>3 · 更新包密钥（调试）</h2>
+    <label>激活码（WM1....）</label>
+    <input id="code" placeholder="WM1.eyJ...sig" />
+    <button type="button" id="btn-key">导出密钥 hex</button>
+    <button type="button" class="ghost" id="btn-copy-key">复制</button>
+    <div class="out" id="key-out">—</div>
+    <p class="hint">密钥 = HMAC(产品密文 + 激活码 + 机器码)，客户端同一算法解密 update.wmp。</p>
+  </section>
+
+  <section class="card">
+    <h2>4 · 打包更新包 update.wmp</h2>
+    <label>exe 文件</label>
+    <input type="file" id="exe" accept=".exe" />
+    <button type="button" id="btn-pack">加密打包并下载</button>
+    <div class="out" id="pack-out">—</div>
+    <p class="hint">产出 WMP1 格式：仅持有对应激活码+机器码的客户端可解密安装。</p>
+  </section>
+
+<script>
+const SECRET = new TextEncoder().encode("wm-workhorse-license-v1-2026");
+
+function fnv1a(bytes) {
+  let h = 0xcbf29ce484222325n;
+  const P = 0x100000001b3n, M = 0xffffffffffffffffn;
+  for (const b of bytes) {
+    h ^= BigInt(b);
+    h = (h * P) & M;
+  }
+  return h;
+}
+function hex16(n) { return n.toString(16).padStart(16, "0"); }
+function hmacLike(msg) {
+  const a = new Uint8Array(SECRET.length + msg.length);
+  a.set(SECRET, 0); a.set(msg, SECRET.length);
+  const b = new Uint8Array(msg.length + SECRET.length);
+  b.set(msg, 0); b.set(SECRET, msg.length);
+  return hex16(fnv1a(a)) + hex16(fnv1a(b));
+}
+function b64(bytes) {
+  let s = "";
+  for (const x of bytes) s += String.fromCharCode(x);
+  return btoa(s);
+}
+function updateKey(code, machine) {
+  const enc = new TextEncoder();
+  const sc = enc.encode(code || "");
+  const sm = enc.encode(machine || "");
+  const seed2 = new Uint8Array(SECRET.length + sc.length + sm.length);
+  seed2.set(SECRET, 0); seed2.set(sc, SECRET.length); seed2.set(sm, SECRET.length + sc.length);
+  const key = new Uint8Array(32);
+  for (let i = 0; i < 4; i++) {
+    const c = new Uint8Array(seed2.length + 1);
+    c.set(seed2, 0); c[seed2.length] = i;
+    const h = hmacLike(c);
+    const hb = new TextEncoder().encode(h);
+    for (let j = 0; j < 8; j++) {
+      const x = hb[j] ?? 48;
+      const y = hb[j + 8] ?? 0;
+      key[i * 8 + j] = x ^ y;
+    }
+  }
+  return key;
+}
+function keystreamXor(key, data) {
+  for (let i = 0; i < data.length; i++) {
+    const k = key[i % key.length] ^ (((Math.floor(i / key.length) * 31) & 0xff));
+    data[i] ^= k & 0xff;
+  }
+}
+
+function $(id) { return document.getElementById(id); }
+
+document.getElementById("btn-mac").onclick = () => {
+  const el = $("machine");
+  if (!el.value.trim()) el.value = "bf77fbf761c6730e";
+  $("key-out").className = "out ok";
+  $("key-out").textContent = "机器码就绪（可改为客户的）";
+};
+document.getElementById("btn-lic").onclick = () => {
+  const machine = $("machine").value.trim();
+  const exp = $("exp").value || "";
+  const tier = $("tier").value.trim() || "pro";
+  const payload = JSON.stringify({ m: machine, exp, tier });
+  const pb = new TextEncoder().encode(payload);
+  const code = "WM1." + b64(pb) + "." + hmacLike(pb);
+  $("lic-out").className = "out ok";
+  $("lic-out").textContent = code;
+};
+document.getElementById("btn-copy-lic").onclick = () => {
+  navigator.clipboard.writeText($("lic-out").textContent).then(() => {
+    $("lic-out").className = "out ok";
+    $("lic-out").textContent += "  (已复制)";
+  });
+};
+document.getElementById("btn-key").onclick = () => {
+  const code = $("code").value.trim();
+  const machine = $("machine").value.trim();
+  if (!code.startsWith("WM1.")) {
+    $("key-out").className = "out err";
+    $("key-out").textContent = "激活码应以 WM1. 开头";
+    return;
+  }
+  const key = updateKey(code, machine);
+  const hex = Array.from(key).map(b => b.toString(16).padStart(2, "0")).join("");
+  $("key-out").className = "out ok";
+  $("key-out").textContent = hex;
+};
+document.getElementById("btn-copy-key").onclick = () => {
+  navigator.clipboard.writeText($("key-out").textContent);
+};
+document.getElementById("btn-pack").onclick = async () => {
+  const file = $("exe").files[0];
+  const code = $("code").value.trim();
+  const machine = $("machine").value.trim();
+  if (!file) { $("pack-out").className = "out err"; $("pack-out").textContent = "请先选择 exe"; return; }
+  if (!code.startsWith("WM1.")) { $("pack-out").className = "out err"; $("pack-out").textContent = "请先填激活码 WM1...."; return; }
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const key = updateKey(code, machine);
+  keystreamXor(key, buf);
+  const mac = new TextEncoder().encode(hmacLike(concatBytes(key, buf)).slice(0, 16));
+  const out = new Uint8Array(4 + buf.length + mac.length);
+  out.set(new TextEncoder().encode("WMP1"), 0);
+  out.set(buf, 4);
+  out.set(mac, 4 + buf.length);
+  const blob = new Blob([out], { type: "application/octet-stream" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "update.wmp";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  $("pack-out").className = "out ok";
+  $("pack-out").textContent = `已下载 update.wmp（${out.length} 字节）`;
+};
+function concatBytes(a, b) {
+  const o = new Uint8Array(a.length + b.length);
+  o.set(a, 0); o.set(b, a.length);
+  return o;
+}
+</script>
+</body>
+</html>

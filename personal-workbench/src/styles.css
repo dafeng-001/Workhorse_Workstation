@@ -1043,3 +1043,23 @@ hr, .md-hr { border-color: rgba(255,255,255,0.04) !important; }
   display: block; height: 100%; width: 0%; border-radius: inherit;
   background: linear-gradient(90deg, #2f7fc4, #6bb8ff); transition: width 0.2s ease;
 }
+
+/* 待办（随时间范围） */
+.todo-list { max-height: 260px; overflow: auto; }
+.todo-title-h { letter-spacing: 0.02em; }
+.todo-item {
+  display: grid; grid-template-columns: auto 1fr auto auto; gap: 10px; align-items: center;
+  padding: 8px 10px; margin-bottom: 6px;
+  border: 1px solid rgba(255,255,255,0.04); border-radius: 10px;
+  background: rgba(255,255,255,0.02);
+}
+.todo-item:hover { background: rgba(255,255,255,0.04); }
+.todo-item.done .todo-title { color: var(--ink-faint); text-decoration: line-through; }
+.todo-item .todo-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-check input { accent-color: var(--accent); }
+.todo-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); }
+.todo-del {
+  appearance: none; border: 0; background: transparent; color: var(--ink-faint);
+  cursor: pointer; padding: 2px 6px; border-radius: 6px;
+}
+.todo-del:hover { color: var(--ink); background: rgba(255,255,255,0.05); }

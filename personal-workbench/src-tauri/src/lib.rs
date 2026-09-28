@@ -8,6 +8,7 @@ mod gigs;
 mod git_stats;
 mod health;
 mod history;
+mod license;
 mod log;
 mod metrics_db;
 mod process;
@@ -648,6 +649,9 @@ async fn set_widget_visible(app: AppHandle<Wry>, visible: bool) -> Result<bool, 
 
 #[tauri::command]
 async fn polish_weekly(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    if !license::is_pro() {
+        return Err("润色为 Pro 功能，请先在设置中激活".into());
+    }
     let cfg = state.config.lock().unwrap().clone();
     let cfg_for_status = cfg.clone();
     git_stats::invalidate_cache();
@@ -1246,32 +1250,22 @@ fn show_toast(title: &str, body: &str) {
 
 fn start_reminder_loop(app: AppHandle<Wry>) {
     std::thread::spawn(move || {
-        let mut last_day = String::new();
-        let mut last_dirty = u32::MAX;
         let mut last_sit_alert = String::new();
+        let mut last_day = String::new();
         let mut last_weekly_alert = String::new();
+        let mut last_todo_alert = String::new();
+        let mut last_dirty_alert = String::new();
         loop {
-            let cfg = config::load_config();
             let now = chrono::Local::now();
-            let today = now.date_naive().to_string();
-            let hour = now.hour() as u32;
+            let today = now.format("%Y-%m-%d").to_string();
+            let hour = now.hour();
+            let cfg = config::load_config();
 
-            if let Some(dash) = singleton::load_json::<Dashboard>() {
-                let dirty = dash.git.dirty_files;
-                if dirty >= cfg.dirty_warn_threshold && dirty != last_dirty {
-                    last_dirty = dirty;
-                    show_toast(
-                        "牛马工作台",
-                        &format!("未提交文件已达到 {dirty} 个，记得提交或暂存"),
-                    );
-                }
-
-                if cfg.daily_reminder
-                    && hour == cfg.remind_hour
-                    && last_day != today
-                {
-                    last_day = today.clone();
+            if cfg.daily_reminder && hour == cfg.remind_hour && last_day != today {
+                last_day = today.clone();
+                if let Some(dash) = crate::singleton::load_json::<Dashboard>() {
                     let lines = dash.git.today_additions + dash.git.today_deletions;
+                    let dirty = dash.git.dirty_files;
                     show_toast(
                         "今日工作摘要",
                         &format!(
@@ -1280,103 +1274,43 @@ fn start_reminder_loop(app: AppHandle<Wry>) {
                         ),
                     );
                 }
+            }
 
-                // 周报定时提醒
-                if cfg.weekly_remind {
-                    let wd = now.weekday().num_days_from_monday() as u32 + 1;
-                    if wd == cfg.weekly_remind_day.clamp(1, 7)
-                        && hour == cfg.weekly_remind_hour.min(23)
-                    {
-                        let key = format!("{today}-weekly-remind");
-                        if last_weekly_alert != key {
-                            let st = weekly::status(&cfg);
-                            if !st.ready {
-                                last_weekly_alert = key;
-                                show_toast(
-                                    "牛马工作台 · 周报提醒",
-                                    "本周周报还没写好，点开工作台生成草稿吧。",
-                                );
-                            }
-                        }
-                    }
-                }
-
-                // 周报定时提醒：配置日+时，本周未 ready 则提示一次
-                if cfg.weekly_remind {
-                    let wd = now.weekday().num_days_from_monday() as u32 + 1;
-                    if wd == cfg.weekly_remind_day.clamp(1, 7)
-                        && hour == cfg.weekly_remind_hour.min(23)
-                    {
-                        let key = format!("{today}-weekly-remind");
-                        if last_weekly_alert != key {
-                            let st = weekly::status(&cfg);
-                            if !st.ready {
-                                last_weekly_alert = key;
-                                show_toast(
-                                    "牛马工作台 · 周报提醒",
-                                    "本周周报还没写好，点开工作台生成草稿吧。",
-                                );
-                            }
-                        }
-                    }
-                }
-
-                // 周报定时提醒：配置日+时，本周尚未 ready 才提示
-                if cfg.weekly_remind {
-                    let wd = now.weekday().num_days_from_monday() as u32 + 1;
-                    if wd == cfg.weekly_remind_day.clamp(1, 7)
-                        && hour == cfg.weekly_remind_hour.min(23)
-                    {
-                        let key = format!("{today}-weekly-remind");
-                        if last_weekly_alert != key {
-                            let st = weekly::status(&cfg);
-                            if !st.ready {
-                                last_weekly_alert = key;
-                                show_toast(
-                                    "牛马工作台 · 周报提醒",
-                                    "本周周报还没写好，点开工作台生成草稿吧。",
-                                );
-                            }
-                        }
-                    }
-                }
-
-                // 周报定时提醒：配置日+时，本周未 ready 则提醒一次
-                if cfg.weekly_remind {
-                    let wd = now.weekday().num_days_from_monday() as u32 + 1; // 1=Mon
-                    if wd == cfg.weekly_remind_day.clamp(1, 7)
-                        && hour == cfg.weekly_remind_hour.min(23)
-                    {
-                        let key = format!("{today}-weekly-remind");
-                        if last_weekly_alert != key {
-                            let st = weekly::status(&cfg);
-                            if !st.ready {
-                                last_weekly_alert = key;
-                                show_toast(
-                                    "牛马工作台 · 周报提醒",
-                                    "本周周报还没写好，点开工作台生成草稿吧。",
-                                );
-                            }
-                        }
-                    }
-                }
-
-                if cfg.weekly_remind {
-                    let wd = now.weekday().num_days_from_monday() as u32 + 1;
-                    if wd == cfg.weekly_remind_day.clamp(1, 7) && hour == cfg.weekly_remind_hour.min(23) {
-                        let key = format!("{today}-weekly-remind");
-                        if last_weekly_alert != key {
-                            let st = weekly::status(&cfg);
-                            if !st.ready {
-                                last_weekly_alert = key;
-                                show_toast("牛马工作台 · 周报提醒", "本周周报还没写好，点开工作台生成草稿吧。");
-                            }
+            // 周报定时提醒
+            if cfg.weekly_remind {
+                let wd = now.weekday().num_days_from_monday() as u32 + 1;
+                if wd == cfg.weekly_remind_day.clamp(1, 7) && hour == cfg.weekly_remind_hour.min(23) {
+                    let key = format!("{today}-weekly-remind");
+                    if last_weekly_alert != key {
+                        let st = weekly::status(&cfg);
+                        if !st.ready {
+                            last_weekly_alert = key;
+                            show_toast(
+                                "牛马工作台 · 周报提醒",
+                                "本周周报还没写好，点开工作台生成草稿吧。",
+                            );
                         }
                     }
                 }
             }
 
-            // 久坐提醒：连续在座超过阈值时托盘提示（同一天按阈值档提醒）
+            // 待办提示（每日 10 点）
+            if last_todo_alert != today && hour == 10 {
+                let store = todos::load();
+                let open = todos::summary(&store)
+                    .get("open")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                if open > 0 {
+                    last_todo_alert = today.clone();
+                    show_toast(
+                        "牛马工作台 · 待办提示",
+                        &format!("还有 {} 条待办未完成", open),
+                    );
+                }
+            }
+
+            // 久坐提醒
             let day = daily::current();
             let data_dir = config::data_dir(&cfg);
             let act_today = activity::today(&data_dir);
@@ -1403,13 +1337,12 @@ fn start_reminder_loop(app: AppHandle<Wry>) {
                     );
                 }
             }
-
-            std::thread::sleep(std::time::Duration::from_secs(120));
+            let _ = &last_dirty_alert;
             let _ = app.clone();
+            std::thread::sleep(std::time::Duration::from_secs(120));
         }
     });
 }
-
 #[tauri::command]
 async fn save_widget_pos(
     app: AppHandle<Wry>,
@@ -1692,7 +1625,7 @@ async fn get_todos() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-async fn add_todo(title: String, repo: Option<String>) -> Result<serde_json::Value, String> {
+async fn add_todo(title: String, repo: Option<String>, scope: Option<String>) -> Result<serde_json::Value, String> {
     let title = title.trim().to_string();
     if title.is_empty() {
         return Err("待办标题不能为空".into());
@@ -1702,6 +1635,7 @@ async fn add_todo(title: String, repo: Option<String>) -> Result<serde_json::Val
         0,
         todos::Todo {
             id: todos::new_id(),
+            scope: scope.clone().unwrap_or_else(|| "w:default".into()),
             title,
             done: false,
             repo: repo.unwrap_or_default(),
@@ -1815,6 +1749,27 @@ async fn delete_gig(id: String) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+fn get_license() -> Result<serde_json::Value, String> {
+    Ok(serde_json::to_value(license::load()).map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
+fn activate_license(code: String) -> Result<serde_json::Value, String> {
+    let info = license::activate(&code)?;
+    log::info("license activated");
+    Ok(serde_json::to_value(info).map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
+fn clear_license() -> Result<serde_json::Value, String> {
+    Ok(serde_json::to_value(license::clear()).map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
+fn gen_license(machine: String, exp: String, tier: String) -> Result<String, String> {
+    Ok(license::generate_code(&machine, &exp, &tier))
+}
+#[tauri::command]
 fn get_app_version() -> String {
     updater::app_version()
 }
@@ -1839,7 +1794,22 @@ async fn check_update() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+
 async fn apply_update(app: AppHandle<Wry>) -> Result<serde_json::Value, String> {
+    // 更新前校验机器码：已激活则必须与本机一致
+    {
+        let lic = license::load();
+        if lic.activated {
+            let me = license::machine_id();
+            if !lic.machine_id.is_empty() && lic.machine_id != me {
+                return Err(format!(
+                    "机器码不一致（激活 {} / 本机 {}），请先重新激活",
+                    lic.machine_id, me
+                ));
+            }
+        }
+    }
+    // (machine check)
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         use tauri::Emitter;
@@ -2033,6 +2003,10 @@ pub fn run() {
             check_network,
             apply_update,
             get_app_version,
+            get_license,
+            activate_license,
+            clear_license,
+            gen_license,
             list_weekly_history,
             read_weekly_file,
             list_known_authors,

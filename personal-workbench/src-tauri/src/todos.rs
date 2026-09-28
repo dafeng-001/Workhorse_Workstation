@@ -4,6 +4,9 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Todo {
+    /// 范围桶：d:YYYY-MM-DD | w:YYYY-Wxx | m:YYYY-MM | r:start_end
+    #[serde(default)]
+    pub scope: String,
     pub id: String,
     pub title: String,
     #[serde(default)]

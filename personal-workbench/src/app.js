@@ -251,6 +251,22 @@ function weekdayLabel(dateStr) {
   const d = new Date(dateStr+"T12:00:00");
   return ["一","二","三","四","五","六","日"][d.getDay()===0?6:d.getDay()-1];
 }
+function todoScope() {
+  const k = ovRange?.kind || "week";
+  const s = ovRange?.start || todayKey();
+  const e = ovRange?.end || s;
+  if (k === "today") return "d:" + s;
+  if (k === "month" || k === "last-month") return "m:" + s.slice(0, 7);
+  if (k === "custom") return "r:" + s + "_" + e;
+  return "w:" + s + "~" + e;
+}
+function todoScopeLabel() {
+  const k = ovRange?.kind || "week";
+  if (k === "today") return "日待办";
+  if (k === "month" || k === "last-month") return "月待办";
+  if (k === "custom") return "区间待办";
+  return "周待办";
+}
 function todayKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -310,6 +326,8 @@ function setOvRange(kind, start, end) {
   const meta = $("range-meta");
   if (meta) meta.textContent = `${label} · ${s} ~ ${e} · 总览随时间范围切换`;
   const tLabel = $("k-lines-label");
+  const todoH = document.querySelector("#view-overview .todo-title-h");
+  if (todoH) todoH.textContent = todoScopeLabel();
   if (tLabel) tLabel.textContent = `${label}代码修改`;
 }
 
@@ -1070,7 +1088,7 @@ function renderTodos(payload) {
 }
 
 async function loadTodos() {
-  try { renderTodos(await invoke("get_todos")); } catch (e) { console.warn("todos", e); }
+  try { renderTodos(await invoke("get_todos", { scope: todoScope() })); } catch (e) { console.warn("todos", e); }
 }
 
 async function addTodo() {
@@ -1078,7 +1096,7 @@ async function addTodo() {
   const title = (input?.value || "").trim();
   if (!title) return;
   try {
-    renderTodos(await invoke("add_todo", { title, repo: null }));
+    renderTodos(await invoke("add_todo", { title, scope: todoScope(), repo: null }));
     if (input) input.value = "";
   } catch (e) { alertMsg(String(e)); }
 }
@@ -1207,7 +1225,7 @@ $("btn-weekly").addEventListener("click", async ()=>{
 $("btn-config").addEventListener("click", async ()=>{
   const cfg = await invoke("get_config");
   openConfig(cfg);
-  refreshAppVersion().catch(()=>{});
+  refreshAppVersion().catch(()=>{}); refreshLicense().catch(()=>{});
 });
 $("btn-weekly-draft")?.addEventListener("click", async ()=>{
   const btn = $("btn-weekly-draft");
@@ -1458,6 +1476,30 @@ $("btn-open-log")?.addEventListener("click", async ()=>{
   try { await invoke("open_log"); } catch (e) { alertMsg(String(e)); }
 });
 /* 在线更新 */
+
+async function refreshLicense() {
+  try {
+    const info = await invoke("get_license");
+    setMany(["license-machine"], info?.machine_id || "—");
+    const st = $("license-status");
+    if (st) st.textContent = info?.activated
+      ? `已激活 ${info.tier || "pro"}${info.exp ? " · 至 " + info.exp : ""}`
+      : (info?.message || "未激活（Pro：周报润色）");
+  } catch {}
+}
+$("btn-activate")?.addEventListener("click", async ()=>{
+  const code = ($("cfg-license")?.value || "").trim();
+  if (!code) { alertMsg("请输入激活码"); return; }
+  try {
+    const info = await invoke("activate_license", { code });
+    alertMsg(info?.message || "激活成功");
+    await refreshLicense();
+  } catch (e) { alertMsg(String(e), "err"); }
+});
+$("btn-clear-license")?.addEventListener("click", async ()=>{
+  try { await invoke("clear_license"); await refreshLicense(); alertMsg("已取消激活"); }
+  catch (e) { alertMsg(String(e), "err"); }
+});
 async function refreshAppVersion() {
   try {
     const v = await invoke("get_app_version");
@@ -1551,22 +1593,22 @@ $("btn-run-update")?.addEventListener("click", async () => {
 document.querySelectorAll(".ov-preset").forEach((btn)=>{
   btn.addEventListener("click", ()=>{
     setOvRange(btn.dataset.kind || "week");
-    loadOverviewRange().catch(()=>{});
+    loadOverviewRange().catch(()=>{}); loadTodos().catch(()=>{});
   });
 });
 $("btn-range-load")?.addEventListener("click", ()=>{
   const s = $("range-start")?.value, e = $("range-end")?.value;
   if (!s || !e) return;
   setOvRange("custom", s, e);
-  loadOverviewRange().catch(()=>{});
+  loadOverviewRange().catch(()=>{}); loadTodos().catch(()=>{});
 });
 $("range-start")?.addEventListener("change", ()=>{
   const s = $("range-start")?.value, e = $("range-end")?.value;
-  if (s && e) { setOvRange("custom", s, e); loadOverviewRange().catch(()=>{}); }
+  if (s && e) { setOvRange("custom", s, e); loadOverviewRange().catch(()=>{}); loadTodos().catch(()=>{}); }
 });
 $("range-end")?.addEventListener("change", ()=>{
   const s = $("range-start")?.value, e = $("range-end")?.value;
-  if (s && e) { setOvRange("custom", s, e); loadOverviewRange().catch(()=>{}); }
+  if (s && e) { setOvRange("custom", s, e); loadOverviewRange().catch(()=>{}); loadTodos().catch(()=>{}); }
 });
 // 启动时初始化本周范围
 setOvRange("week");

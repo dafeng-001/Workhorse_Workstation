@@ -470,6 +470,7 @@ fn dev_week_block(
     others: &[String],
     dirty_repos: &[String],
     ext_note: &str,
+    themes: &[PathTheme],
 ) -> String {
     let mut s = String::new();
     s.push_str(&format!(
@@ -479,10 +480,28 @@ fn dev_week_block(
     if git.dirty_files > 0 {
         s.push_str(&format!("- 未提交文件 **{}** 个\n", git.dirty_files));
     }
-    s.push('\n');
+    if !themes.is_empty() {
+        let files: u64 = themes.iter().map(|t| t.files).sum();
+        s.push_str(&format!("- 改动涉及 **{}** 个文件 · **{}** 个模块/主题\n\n", files, themes.len()));
+        s.push_str("**模块 / 主题（按改动量）**\n\n");
+        for t in themes {
+            let ext = if t.ext.is_empty() {
+                String::new()
+            } else {
+                format!(" · .{}", t.ext)
+            };
+            s.push_str(&format!(
+                "1. **{}** — {} 文件 · +{} / −{}{}\n",
+                t.theme, t.files, t.additions, t.deletions, ext
+            ));
+        }
+        s.push('\n');
+    } else {
+        s.push('\n');
+    }
     if !features.is_empty() || !fixes.is_empty() || !others.is_empty() {
         if !features.is_empty() {
-            s.push_str("**功能/实现**\n\n");
+            s.push_str("**功能/实现（合并去重）**\n\n");
             for (i, x) in features.iter().enumerate() {
                 s.push_str(&format!("{}. {}\n", i + 1, x));
             }
@@ -515,6 +534,40 @@ fn dev_week_block(
     s
 }
 
+
+fn todos_week_block() -> String {
+    let store = crate::todos::load();
+    let mut open: Vec<String> = Vec::new();
+    let mut done: Vec<String> = Vec::new();
+    for t in &store.items {
+        let sc_ok = t.scope.starts_with("w:") || t.scope.is_empty();
+        if !sc_ok { continue; }
+        if t.done {
+            done.push(t.title.clone());
+        } else {
+            open.push(t.title.clone());
+        }
+    }
+    if open.is_empty() && done.is_empty() {
+        return String::new();
+    }
+    let mut s = String::from("**待办（本机）**\n\n");
+    if !done.is_empty() {
+        for (i, x) in done.iter().take(8).enumerate() {
+            s.push_str(&format!("{}. ~~{}~~\n", i + 1, x));
+        }
+    }
+    if !open.is_empty() {
+        for (i, x) in open.iter().take(12).enumerate() {
+            s.push_str(&format!("{}. {}\n", i + 1, x));
+        }
+    }
+    if open.len() > 12 {
+        s.push_str(&format!("…另有 {} 条未完成\n", open.len() - 12));
+    }
+    s.push('\n');
+    s
+}
 fn ext_note_of(cfg: &Config) -> String {
     if cfg.count_exts.is_empty() {
         String::new()
@@ -567,6 +620,111 @@ fn collect_repo_works(cfg: &Config, after: &str) -> Vec<(String, Vec<(String, St
     works
 }
 
+/// 本周 numstat 按 path 顶层目录聚合（不依赖 commit 文案）。
+/// 返回 (模块名, 文件数, additions, deletions, 代表性扩展名)
+fn collect_path_themes(cfg: &Config, after: &str) -> Vec<PathTheme> {
+    use std::collections::BTreeMap;
+    let mut map: BTreeMap<String, PathTheme> = BTreeMap::new();
+    for raw in &weekly_repos_filtered(cfg) {
+        let p = expand_repo_path(raw);
+        if !p.exists() {
+            continue;
+        }
+        let repo = p
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| raw.clone());
+        let aflags = author_flags(cfg, &p);
+        let mut args: Vec<&str> = vec![
+            "log",
+            "--since",
+            after,
+            "--no-merges",
+            "--numstat",
+            "--no-color",
+            "--pretty=format:COMMIT",
+        ];
+        for f in &aflags {
+            args.push(f);
+        }
+        let log = run_git(&p, &args).unwrap_or_default();
+        for line in log.lines() {
+            let line = line.trim();
+            if line.is_empty() || line == "COMMIT" {
+                continue;
+            }
+            // adds\tdels\tpath
+            let mut parts = line.splitn(3, '\t');
+            let a = parts.next().unwrap_or("0");
+            let d = parts.next().unwrap_or("0");
+            let path = parts.next().unwrap_or("");
+            if path.is_empty() {
+                continue;
+            }
+            let add: i64 = a.parse().unwrap_or(0);
+            let del: i64 = d.parse().unwrap_or(0);
+            if add == 0 && del == 0 {
+                continue;
+            }
+            let theme = path_theme_key(path, &repo);
+            let e = map.entry(theme.clone()).or_insert_with(|| PathTheme {
+                theme,
+                files: 0,
+                additions: 0,
+                deletions: 0,
+                ext: String::new(),
+            });
+            e.files += 1;
+            e.additions += add;
+            e.deletions += del;
+            if e.ext.is_empty() {
+                if let Some(ext) = path.rsplit('.').next() {
+                    if ext.len() <= 5 && !path.ends_with('.') {
+                        e.ext = ext.to_string();
+                    }
+                }
+            }
+        }
+    }
+    let mut list: Vec<PathTheme> = map.into_values().collect();
+    list.sort_by(|a, b| {
+        (b.additions + b.deletions)
+            .cmp(&(a.additions + a.deletions))
+            .then_with(|| b.files.cmp(&a.files))
+    });
+    list.truncate(8);
+    list
+}
+
+#[derive(Debug, Clone)]
+struct PathTheme {
+    theme: String,
+    files: u64,
+    additions: i64,
+    deletions: i64,
+    ext: String,
+}
+
+/// 模块名：优先 path 第一段（中文目录常用）；扁平仓用文件名去扩展名。
+fn path_theme_key(path: &str, repo: &str) -> String {
+    let p = path.replace('\\', "/");
+    let mut segs: Vec<&str> = p.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
+    if segs.len() >= 2 {
+        let top = segs.remove(0);
+        // 忽略 .trae/.git 等点目录
+        if !top.starts_with('.') {
+            return format!("{repo}/{top}");
+        }
+    }
+    if let Some(last) = segs.last() {
+        let stem = last.rsplit_once('.').map(|(s, _)| s).unwrap_or(last);
+        if !stem.is_empty() {
+            return format!("{repo}/{stem}");
+        }
+    }
+    repo.to_string()
+}
+
 pub fn draft(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
     let now = Local::now();
     let (week_id, range, path) = week_file(cfg, now);
@@ -582,6 +740,7 @@ pub fn draft(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
     let start = (now - chrono::Duration::days(weekday as i64)).date_naive();
     let after = format!("{}T00:00:00", start);
     let works = collect_repo_works(cfg, &after);
+    let themes = collect_path_themes(cfg, &after);
     let mut features = Vec::new();
     let mut fixes = Vec::new();
     let mut others = Vec::new();
@@ -598,6 +757,9 @@ pub fn draft(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
             dirty_lines.push(format!("**{name}**：{} 个文件未提交", dirty.len()));
         }
     }
+    features.dedup();
+    fixes.dedup();
+    others.dedup();
     features.truncate(8);
     fixes.truncate(8);
     others.truncate(6);
@@ -610,11 +772,12 @@ pub fn draft(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
     md.push_str("## 概览\n\n");
     let week_confident: u64 = week_act.iter().map(|d| d.confident_seconds).sum();
     md.push_str(&format!(
-        "- 提交 **{}** 次 · 代码 **+{} / −{}**{} · 高置信在机 **{}**（在线 {}）· 未提交 **{}**\n\n",
+        "- 提交 **{}** 次 · 代码 **+{} / −{}**{} · 文件 **{}** · 高置信在机 **{}**（在线 {}）· 未提交 **{}**\n\n",
         git.week_commits,
         git.week_additions,
         git.week_deletions,
         ext_note,
+        themes.iter().map(|t| t.files).sum::<u64>(),
         activity::format_duration(week_confident),
         activity::format_duration(total_active),
         git.dirty_files
@@ -630,6 +793,7 @@ pub fn draft(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
             &others,
             &dirty_lines,
             &ext_note,
+            &themes,
         ));
     }
 
@@ -647,6 +811,7 @@ pub fn draft(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
         md.push_str("> 当前配置未勾选任何周报范围（开发/办公/健康），请到设置中开启。\n\n");
     }
 
+    md.push_str(&todos_week_block());
     md.push_str("## 下周计划（请填写）\n\n");
     let plan = extract_user_section(&existing, &["下周计划"]).unwrap_or_else(|| {
         if !dirty_lines.is_empty() {
@@ -760,6 +925,7 @@ pub fn polish(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
     let start = (now - chrono::Duration::days(weekday as i64)).date_naive();
     let after = format!("{}T00:00:00", start);
     let works = collect_repo_works(cfg, &after);
+    let themes = collect_path_themes(cfg, &after);
 
     let mut features = Vec::new();
     let mut fixes = Vec::new();
@@ -792,6 +958,9 @@ pub fn polish(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
     features.dedup();
     fixes.dedup();
     others.dedup();
+    features.dedup();
+    fixes.dedup();
+    others.dedup();
     features.truncate(8);
     fixes.truncate(8);
     others.truncate(6);
@@ -813,10 +982,11 @@ pub fn polish(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
     let mut md = String::new();
     md.push_str(&format!("# 工作周报 · {week_id}\n\n"));
     md.push_str(&format!(
-        "**区间**：{range}  \n**汇总**：代码 +{}/−{} · 提交 {} · 办公文档 {} · 高置信在机 {}（在线 {}）\n",
+        "**区间**：{range}  \n**汇总**：代码 +{}/−{} · 提交 {} · 文件 {} · 办公文档 {} · 高置信在机 {}（在线 {}）\n",
         git.week_additions,
         git.week_deletions,
         git.week_commits,
+        themes.iter().map(|t| t.files).sum::<u64>(),
         if has_office_data {
             crate::file_activity::collect_office_detail().week_office.to_string()
         } else {
@@ -867,6 +1037,7 @@ pub fn polish(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
             &others,
             &dirty_lines,
             &ext_note,
+            &themes,
         ));
     }
 
@@ -886,6 +1057,7 @@ pub fn polish(cfg: &Config) -> anyhow::Result<(String, std::path::PathBuf)> {
         // 仅有健康时仍合理；若三范围都启用但开发无数据，开发节已跳过
     }
 
+    md.push_str(&todos_week_block());
     md.push_str(&format!("## {}、下周计划\n\n", next_sec()));
     let polished_existing =
         std::fs::read_to_string(&path.with_file_name(format!("{week_id}-润色.md")))

@@ -151,6 +151,41 @@
           <p class="hint path" id="h-source"></p>
         </section>
       </div>
+      <!-- 待办（跨范围执行）+ 周报（跨范围交付）→ 归总览 -->
+      <div class="grid-2" style="margin-top:14px">
+        <section class="panel">
+          <header class="panel-head">
+            <h2 class="todo-title-h">本周待办</h2>
+            <div class="row-actions">
+              <span class="hint" id="todo-done">—</span>
+            </div>
+          </header>
+          <div class="gig-form">
+            <input id="todo-input" class="inline-input grow" placeholder="添加待办，回车确认…" />
+            <button type="button" id="btn-todo-add" class="btn sm primary">添加</button>
+          </div>
+          <ul id="todo-list" class="todo-list"></ul>
+          <p class="hint">未完成项会参与托盘「待办提示」；可与周报「下周计划」对照。</p>
+        </section>
+        <section class="panel">
+          <header class="panel-head">
+            <h2>周报 · 按配置范围出稿</h2>
+            <div class="row-actions">
+              <button type="button" id="btn-weekly-draft" class="btn sm">草稿</button>
+              <button type="button" id="btn-polish" class="btn primary sm">润色</button>
+              <button type="button" id="btn-copy-weekly" class="btn sm">复制</button>
+              <button type="button" id="btn-export-weekly" class="btn sm ghost">导出</button>
+              <button type="button" id="btn-open-weekly" class="btn sm ghost" title="打开周报文件">打开</button>
+            </div>
+          </header>
+          <div class="weekly-history-row">
+            <label class="hint" for="weekly-history">历史</label>
+            <select id="weekly-history" class="select"></select>
+          </div>
+          <p class="hint weekly-meta" id="weekly-meta">尚未生成。点「草稿」或「润色」按 开发/办公/健康 出稿</p>
+          <div id="weekly-preview" class="preview weekly-md" data-raw="">尚未生成。点「草稿」或「润色」按 开发/办公/健康 出稿</div>
+        </section>
+      </div>
     </section>
 
     <!-- ============ 开发范围 ============ -->
@@ -224,27 +259,6 @@
           <div id="dev-dirty-list" class="dirty-list"></div>
         </section>
 
-        <aside class="stack">
-          <section class="panel grow">
-            <header class="panel-head">
-              <h2>周报 · 按配置范围出稿</h2>
-              <div class="row-actions">
-                <button type="button" id="btn-weekly-draft" class="btn sm">草稿</button>
-                <button type="button" id="btn-polish" class="btn primary sm">润色</button>
-                <button type="button" id="btn-copy-weekly" class="btn sm">复制</button>
-                <button type="button" id="btn-export-weekly" class="btn sm ghost">导出</button>
-                <button type="button" id="btn-open-weekly" class="btn sm ghost" title="打开周报文件">打开</button>
-              </div>
-            </header>
-            <div class="weekly-history-row">
-              <label class="hint" for="weekly-history">历史</label>
-              <select id="weekly-history" class="select"></select>
-            </div>
-            <p class="hint weekly-meta" id="weekly-meta">尚未生成。点「草稿」或「润色」按 开发/办公/健康 出稿</p>
-            <div id="weekly-preview" class="preview weekly-md" data-raw="">尚未生成。点「草稿」或「润色」按 开发/办公/健康 出稿</div>
-          </section>
-        </aside>
-      </div>
       <p class="hint" id="dev-note" style="margin-top:8px"></p>
     </section>
 
@@ -665,6 +679,17 @@
             <h4>通知样式</h4>
             <label class="check"><input type="checkbox" id="cfg-quiet-toasts" checked /> 应用内提示用角标通知（可收起，不用系统弹窗）</label>
             <p class="hint">关闭后仍用旧版 alert 弹窗。角标通知可随时点 × 关闭或收进「铃」历史。</p>
+          </div>
+
+          <div class="cfg-block">
+            <h4>激活 Pro</h4>
+            <p class="hint">机器码 <span id="license-machine">—</span></p>
+            <label>激活码 <input id="cfg-license" class="inline-input grow" placeholder="WM1.xxxx.yyyy" style="width:100%" /></label>
+            <div class="cfg-inline">
+              <button type="button" id="btn-activate" class="btn primary sm">激活</button>
+              <button type="button" id="btn-clear-license" class="btn sm ghost">取消激活</button>
+            </div>
+            <p class="hint" id="license-status">未激活（Pro：周报润色）</p>
           </div>
 
           <div class="cfg-block">

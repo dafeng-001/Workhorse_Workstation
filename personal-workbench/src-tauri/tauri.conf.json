@@ -1,4 +1,4 @@
-﻿{
+{
     "$schema":  "https://schema.tauri.app/config/2",
     "productName":  "牛马工作台",
     "version": "0.0.4",

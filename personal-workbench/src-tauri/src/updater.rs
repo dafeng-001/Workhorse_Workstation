@@ -233,6 +233,35 @@ pub fn check_update() -> Result<UpdateInfo, String> {
     })
 }
 
+const WMP_MAGIC: &[u8] = b"WMP1";
+
+fn keystream_xor(key: &[u8], data: &mut [u8]) {
+    for (i, b) in data.iter_mut().enumerate() {
+        let k = key[i % key.len()] ^ ((i / key.len()) as u8).wrapping_mul(31);
+        *b ^= k;
+    }
+}
+
+pub fn decrypt_wmp(blob: &[u8], key: &[u8]) -> Result<Vec<u8>, String> {
+    if blob.len() < 4 + 16 + 4 || &blob[..4] != WMP_MAGIC {
+        return Err("更新包格式不正确".into());
+    }
+    let body = &blob[4..blob.len() - 16];
+    let mac = String::from_utf8_lossy(&blob[blob.len() - 16..]).to_string();
+    let mut plain = body.to_vec();
+    keystream_xor(key, &mut plain);
+    let mut chk = Vec::from(key);
+    chk.extend_from_slice(&plain);
+    let expect = crate::license::checksum16(&chk);
+    if !expect.eq_ignore_ascii_case(mac.trim()) {
+        return Err("更新包校验失败（不适用于本机激活码/机器码）".into());
+    }
+    if plain.len() < 2 || plain[0] != b'M' || plain[1] != b'Z' {
+        return Err("解密后不是合法 exe".into());
+    }
+    Ok(plain)
+}
+
 fn update_dir() -> PathBuf {
     crate::config::app_root().join("data").join("update")
 }
@@ -274,6 +303,10 @@ pub fn download_package_progress(
     }
     if buf.len() < 1_000_000 {
         return Err(format!("下载体积异常（{} 字节），已放弃", buf.len()));
+    }
+    if buf.len() > 4 && &buf[..4] == WMP_MAGIC {
+        let key = crate::license::update_key().ok_or("更新包已加密：请先激活（密钥=激活码+机器码）")?;
+        buf = decrypt_wmp(&buf, &key)?;
     }
     if !(buf.len() >= 2 && buf[0] == b'M' && buf[1] == b'Z') {
         return Err("下载内容不是合法 Windows 程序（MZ）".into());
