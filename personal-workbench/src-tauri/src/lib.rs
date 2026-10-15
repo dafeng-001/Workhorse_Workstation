@@ -17,6 +17,8 @@ mod singleton;
 mod slack;
 mod startup;
 mod wechat_trace;
+mod tcm_advice;
+mod skills;
 mod todos;
 mod updater;
 mod weekly;
@@ -1770,6 +1772,129 @@ fn gen_license(machine: String, exp: String, tier: String) -> Result<String, Str
     Ok(license::generate_code(&machine, &exp, &tier))
 }
 #[tauri::command]
+async fn get_tcm_advice(state: State<'_, AppState>, use_llm: Option<bool>) -> Result<serde_json::Value, String> {
+    let cfg = state.config.lock().unwrap().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if use_llm.unwrap_or(false) {
+            if cfg.llm_api_base.trim().is_empty() || cfg.llm_api_key.trim().is_empty() {
+                return Err("请先在设置中配置 AI（API Base / Key）".into());
+            }
+            health::llm_lifestyle(&cfg.llm_api_base, &cfg.llm_api_key, &cfg.llm_model)
+        } else {
+            let h = health::evaluate_rules();
+            let today = daily::current();
+            Ok(serde_json::json!({
+                "score": h.score,
+                "level": h.level,
+                "advice": h.tips,
+                "basis": [
+                    format!("健康分 {}（{}）", h.score, h.level),
+                    format!("高置信约 {:.1}h · 最长连续在座 {:.1}h", h.confident_hours, h.streak_hours),
+                    format!("离位 {} 次", h.away_gaps)
+                ],
+                "ask_basis": ["高置信在机/连续在座/离位/键入（metrics.sqlite）", "健康分 v2（CALC.md §4）"],
+                "answer_basis": ["规则引擎 health-v2", "（点 AI 可切换经方作息视角）"],
+                "disclaimer": "以下为生活作息建议，非医疗诊断或处方；不能替代执业医师诊疗。如有明显不适请及时就医。",
+                "note": "规则版建议",
+                "source": "rules"
+            }))
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn list_skills() -> Result<serde_json::Value, String> {
+    Ok(serde_json::to_value(skills::list_meta()).map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
+async fn ask_skill(
+    state: State<'_, AppState>,
+    skill_id: String,
+    user_text: Option<String>,
+    use_llm: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let cfg = state.config.lock().unwrap().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let use_llm = use_llm.unwrap_or(true);
+        let (base, key, model) = if use_llm {
+            (
+                cfg.llm_api_base.trim().to_string(),
+                cfg.llm_api_key.trim().to_string(),
+                cfg.llm_model.trim().to_string(),
+            )
+        } else {
+            (String::new(), String::new(), String::new())
+        };
+        skills::run_skill(
+            &skill_id,
+            user_text.as_deref().unwrap_or(""),
+            &base,
+            &key,
+            &model,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn import_health_data(content: String, filename: Option<String>) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let text = content.trim();
+        if text.is_empty() {
+            return Err("内容为空".to_string());
+        }
+        // try JSON first, else wrap as raw note + naive key: value / csv rows
+        let parsed: serde_json::Value = serde_json::from_str(text).unwrap_or_else(|_| {
+            let mut lines = Vec::new();
+            for line in text.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                if let Some((k, v)) = line.split_once([':', '=']) {
+                    lines.push(serde_json::json!({
+                        "key": k.trim(),
+                        "value": v.trim()
+                    }));
+                } else if let Some((a, b)) = line.split_once(',') {
+                    lines.push(serde_json::json!({
+                        "key": a.trim(),
+                        "value": b.trim()
+                    }));
+                } else {
+                    lines.push(serde_json::json!({ "note": line }));
+                }
+            }
+            serde_json::json!({
+                "items": lines,
+                "raw": text,
+            })
+        });
+        let cfg = crate::config::load_config();
+        let dir = crate::config::data_dir(&cfg);
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("health_import.json");
+        let payload = serde_json::json!({
+            "filename": filename.unwrap_or_default(),
+            "imported_at": chrono::Local::now().to_rfc3339(),
+            "data": parsed,
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        Ok(serde_json::json!({
+            "ok": true,
+            "path": path.to_string_lossy(),
+            "summary": "健康数据已导入，将并入 AI 场景数据",
+        }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn get_app_version() -> String {
     updater::app_version()
 }
@@ -1911,6 +2036,7 @@ pub fn run() {
             config: Mutex::new(cfg.clone()),
         })
         .setup(move |app| {
+            skills::ensure_default_files();
             file_activity::warmup_async();
             daily::warmup();
             focus::warmup();
@@ -2003,6 +2129,10 @@ pub fn run() {
             check_network,
             apply_update,
             get_app_version,
+            get_tcm_advice,
+            list_skills,
+            import_health_data,
+            ask_skill,
             get_license,
             activate_license,
             clear_license,

@@ -135,7 +135,7 @@ pub fn evaluate_rules() -> HealthReport {
     }
 }
 
-fn build_client() -> ureq::Agent {
+pub fn build_client() -> ureq::Agent {
     ureq::AgentBuilder::new()
         .timeout(std::time::Duration::from_secs(20))
         .build()
@@ -206,7 +206,7 @@ pub fn llm_analyze(
     let body = serde_json::json!({
         "model": model,
         "messages": [
-            {"role": "system", "content": "你是健康助理，输出严格 JSON，不要多余文字。"},
+            {"role": "system", "content": crate::tcm_advice::system_prompt()},
             {"role": "user", "content": user}
         ],
         "temperature": 0.3,
@@ -256,4 +256,66 @@ pub fn llm_analyze(
         away_gaps: base.away_gaps,
         away_hours: base.away_hours,
     })
+}
+
+/// 经方作息视角建议（场景数据 + 免责声明）
+pub fn llm_lifestyle(
+    api_base: &str,
+    api_key: &str,
+    model: &str,
+) -> Result<serde_json::Value, String> {
+    let base = evaluate_rules();
+    let today = daily::current();
+    let act = activity::today(&crate::config::data_dir(&crate::config::load_config()));
+    let user = crate::tcm_advice::user_prompt(
+        base.score,
+        &base.level,
+        base.confident_hours.max(0.0),
+        base.streak_hours.max(0.0),
+        base.away_gaps,
+        base.away_hours.max(0.0),
+        today.keys,
+        today.locks,
+        &base.tips.join("；"),
+    );
+    let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": crate::tcm_advice::system_prompt()},
+            {"role": "user", "content": user}
+        ],
+        "temperature": 0.4,
+    });
+    let text = build_client()
+        .post(&url)
+        .set("Authorization", &format!("Bearer {}", api_key.trim()))
+        .set("Content-Type", "application/json")
+        .send_string(&body.to_string())
+        .map_err(|e| e.to_string())?
+        .into_string()
+        .map_err(|e| e.to_string())?;
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|_| "LLM 响应解析失败".to_string())?;
+    let content = v["choices"][0]["message"]["content"].as_str().unwrap_or("").trim().to_string();
+    let content = content.trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim().to_string();
+    let parsed: serde_json::Value = serde_json::from_str(&content)
+        .unwrap_or_else(|_| serde_json::json!({"advice": [content], "basis": [], "note": "非医疗建议"}));
+    Ok(serde_json::json!({
+        "score": base.score,
+        "level": base.level,
+        "advice": parsed["advice"],
+        "basis": parsed["basis"],
+        "note": parsed["note"],
+        "ask_basis": [
+            "高置信在机/连续在座/离位/键入（metrics.sqlite）",
+            "健康分 v2（CALC.md §4）"
+        ],
+        "answer_basis": [
+            "倪海厦经方作息视角",
+            "李可疲劳调养思路",
+            "仅生活建议，不诊断不开方"
+        ],
+        "disclaimer": "以下为生活作息建议，非医疗诊断或处方；不能替代执业医师诊疗。如有明显不适请及时就医。",
+        "source": "tcm-lifestyle-v1"
+    }))
 }

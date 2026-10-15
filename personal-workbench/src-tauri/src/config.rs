@@ -67,6 +67,12 @@ pub struct Config {
     pub llm_api_key: String,
     #[serde(default = "default_llm_model")]
     pub llm_model: String,
+    /// Extra skill directories (beside exe `skills/`). Absolute or relative to app root.
+    #[serde(default)]
+    pub skill_paths: Vec<String>,
+    /// UI theme id: midnight | cyan | violet | amber | light | light-blue
+    #[serde(default = "default_ui_theme")]
+    pub ui_theme: String,
     /// Write diagnostics to data/app.log
     #[serde(default)]
     pub log_enabled: bool,
@@ -134,6 +140,10 @@ fn default_weekly_remind_hour() -> u32 {
 fn default_dirty_warn() -> u32 {
     20
 }
+fn default_ui_theme() -> String {
+    "midnight".into()
+}
+
 fn default_llm_model() -> String {
     "gpt-4o-mini".into()
 }
@@ -181,6 +191,8 @@ impl Default for Config {
             llm_api_base: String::new(),
             llm_api_key: String::new(),
             llm_model: default_llm_model(),
+            skill_paths: Vec::new(),
+            ui_theme: default_ui_theme(),
             log_enabled: false,
             show_window_on_launch: true,
             authored_emails: Vec::new(),

@@ -31,11 +31,11 @@
         <button type="button" class="mode-btn" data-mode="files">办公</button>
         <button type="button" class="mode-btn" data-mode="rhythm">健康</button>
         <button type="button" class="mode-btn" data-mode="work">摸鱼</button>
+        <button type="button" class="mode-btn" data-mode="ai">AI</button>
       </nav>
 
       <div class="actions">
         <button id="btn-refresh" class="btn">刷新</button>
-        <button id="btn-weekly" class="btn">周报草稿</button>
         <button id="btn-config" class="btn ghost">配置</button>
       </div>
     </header>
@@ -139,53 +139,50 @@
             </div>
           </div>
         </section>
-        <section class="panel">
+        <section class="panel health-panel">
           <header class="panel-head">
-            <h2>健康提示 · 今日</h2>
-            <div class="row-actions">
-              <button type="button" id="btn-health" class="btn sm">本地</button>
-              <button type="button" id="btn-health-llm" class="btn sm primary">AI</button>
+            <h2>健康建议 · 今日</h2>
+            <div class="seg health-src" role="group" aria-label="健康建议来源">
+              <button type="button" id="btn-health" class="seg-btn active" data-src="local">本地</button>
+              <button type="button" id="btn-health-llm" class="seg-btn" data-src="ai">AI</button>
             </div>
           </header>
-          <ul id="h-tips" class="health-tips"></ul>
+          <div class="health-body">
+            <p class="hint tcm-meta" id="tcm-meta"></p>
+            <ul id="h-tips" class="health-tips"></ul>
+            <details class="tcm-basis">
+              <summary>提问依据 / 回答依据</summary>
+              <div class="basis-list">
+                <div class="basis-row">
+                  <span class="basis-label">提问</span>
+                  <div class="basis-chips" id="tcm-ask"></div>
+                </div>
+                <div class="basis-row">
+                  <span class="basis-label">回答</span>
+                  <div class="basis-chips" id="tcm-ans"></div>
+                </div>
+              </div>
+            </details>
+            <p class="hint tcm-disclaimer" id="tcm-disclaimer"></p>
+          </div>
           <p class="hint path" id="h-source"></p>
         </section>
       </div>
-      <!-- 待办（跨范围执行）+ 周报（跨范围交付）→ 归总览 -->
-      <div class="grid-2" style="margin-top:14px">
-        <section class="panel">
-          <header class="panel-head">
-            <h2 class="todo-title-h">本周待办</h2>
-            <div class="row-actions">
-              <span class="hint" id="todo-done">—</span>
-            </div>
-          </header>
-          <div class="gig-form">
-            <input id="todo-input" class="inline-input grow" placeholder="添加待办，回车确认…" />
-            <button type="button" id="btn-todo-add" class="btn sm primary">添加</button>
+      <!-- 待办（跨范围执行）；周报已迁 AI 页 -->
+      <section class="panel" style="margin-top:14px">
+        <header class="panel-head">
+          <h2 class="todo-title-h">本周待办</h2>
+          <div class="row-actions">
+            <span class="hint" id="todo-done">—</span>
           </div>
-          <ul id="todo-list" class="todo-list"></ul>
-          <p class="hint">未完成项会参与托盘「待办提示」；可与周报「下周计划」对照。</p>
-        </section>
-        <section class="panel">
-          <header class="panel-head">
-            <h2>周报 · 按配置范围出稿</h2>
-            <div class="row-actions">
-              <button type="button" id="btn-weekly-draft" class="btn sm">草稿</button>
-              <button type="button" id="btn-polish" class="btn primary sm">润色</button>
-              <button type="button" id="btn-copy-weekly" class="btn sm">复制</button>
-              <button type="button" id="btn-export-weekly" class="btn sm ghost">导出</button>
-              <button type="button" id="btn-open-weekly" class="btn sm ghost" title="打开周报文件">打开</button>
-            </div>
-          </header>
-          <div class="weekly-history-row">
-            <label class="hint" for="weekly-history">历史</label>
-            <select id="weekly-history" class="select"></select>
-          </div>
-          <p class="hint weekly-meta" id="weekly-meta">尚未生成。点「草稿」或「润色」按 开发/办公/健康 出稿</p>
-          <div id="weekly-preview" class="preview weekly-md" data-raw="">尚未生成。点「草稿」或「润色」按 开发/办公/健康 出稿</div>
-        </section>
-      </div>
+        </header>
+        <div class="gig-form">
+          <input id="todo-input" class="inline-input grow" placeholder="添加待办，回车确认…" />
+          <button type="button" id="btn-todo-add" class="btn sm primary">添加</button>
+        </div>
+        <ul id="todo-list" class="todo-list"></ul>
+        <p class="hint">未完成项会参与托盘「待办提示」；周报在 AI 页生成时可对照「下周计划」。</p>
+      </section>
     </section>
 
     <!-- ============ 开发范围 ============ -->
@@ -258,7 +255,7 @@
           </header>
           <div id="dev-dirty-list" class="dirty-list"></div>
         </section>
-
+      </div>
       <p class="hint" id="dev-note" style="margin-top:8px"></p>
     </section>
 
@@ -434,12 +431,12 @@
           </div>
         </section>
 
-        <section class="panel grow">
+        <section class="panel grow health-panel">
           <header class="panel-head">
-            <h2>健康提示</h2>
-            <div class="row-actions">
-              <button type="button" id="btn-health" class="btn sm">本地</button>
-              <button type="button" id="btn-health-llm-2" class="btn sm primary">AI</button>
+            <h2>健康建议</h2>
+            <div class="seg health-src" role="group" aria-label="健康建议来源">
+              <button type="button" id="btn-health-2" class="seg-btn active" data-src="local">本地</button>
+              <button type="button" id="btn-health-llm-2" class="seg-btn" data-src="ai">AI</button>
             </div>
           </header>
           <div class="health-score inline">
@@ -505,6 +502,73 @@
         </section>
       </div>
     </section>
+
+    <!-- ============ AI：聊天在上，输入固定底部 ============ -->
+    <section id="view-ai" class="view ai-page">
+      <div class="ai-layout">
+        <section class="panel ai-panel">
+          <header class="panel-head">
+            <h2>AI 沟通 · 周报 / 健康 / 待办</h2>
+            <div class="row-actions">
+              <span class="hint" id="ai-model-hint">—</span>
+              <button type="button" id="btn-ai-clear" class="btn sm ghost">清空</button>
+            </div>
+          </header>
+
+          <div id="ai-stream" class="ai-stream">
+            <div class="ai-empty" id="ai-empty">
+              <div class="ai-empty-title">今天想处理什么？</div>
+              <div class="ai-empty-sub">聊天在下，结果出在对话里。可用 / 调用技能。</div>
+              <div class="ai-actions-bar" id="ai-actions">
+                <button type="button" class="btn sm" data-act="weekly-draft">周报草稿</button>
+                <button type="button" class="btn sm" data-act="weekly-polish">周报润色</button>
+                <button type="button" class="btn sm" data-act="health-local">健康 · 本地</button>
+                <button type="button" class="btn sm" data-act="health-ai">健康 · AI</button>
+                <button type="button" class="btn sm" data-act="todos">本周待办</button>
+              </div>
+            </div>
+          </div>
+
+          <details class="ai-weekly" id="ai-weekly">
+            <summary>周报输出 · 历史与预览</summary>
+            <div class="weekly-history-row">
+              <label class="hint" for="weekly-history">历史</label>
+              <select id="weekly-history" class="select"></select>
+            </div>
+            <div class="row-actions" style="margin:8px 0">
+              <button type="button" id="btn-weekly-draft" class="btn sm">草稿</button>
+              <button type="button" id="btn-polish" class="btn primary sm">润色</button>
+              <button type="button" id="btn-copy-weekly" class="btn sm">复制</button>
+              <button type="button" id="btn-export-weekly" class="btn sm ghost">导出</button>
+              <button type="button" id="btn-open-weekly" class="btn sm ghost" title="打开周报文件">打开</button>
+            </div>
+            <p class="hint weekly-meta" id="weekly-meta">尚未生成。在对话里点「周报草稿」，或这里点「草稿」</p>
+            <div id="weekly-preview" class="preview weekly-md" data-raw="">尚未生成。</div>
+          </details>
+
+          <div class="ai-dock">
+            <div class="ai-skill-bar" id="ai-skills" title="内嵌提示词 / 规则">
+              <span class="skill-chip">规则引擎 health-v2</span>
+              <span class="skill-chip">倪海厦经方作息</span>
+              <span class="skill-chip">李可疲劳调养</span>
+              <span class="skill-chip">CALC.md 周报口径</span>
+            </div>
+            <div class="ai-input-wrap agent-bar">
+              <div class="ai-slash-menu" id="ai-slash-menu" hidden></div>
+              <div class="agent-row">
+                <button type="button" id="btn-ai-upload" class="agent-icon" title="上传健康数据">+</button>
+                <button type="button" id="btn-ai-access" class="agent-chip" title="skill 路由">自动路由 <span class="caret">▾</span></button>
+                <input id="ai-input" class="ai-input" type="text"
+                       placeholder="描述任务，输入 /调用技能" autocomplete="off" />
+                <button type="button" id="btn-ai-model" class="agent-chip ghost" title="当前模型">Smart</button>
+                <button type="button" id="btn-ai-send" class="agent-send" title="发送">↑</button>
+              </div>
+              <input type="file" id="ai-health-file" accept=".json,.csv,.txt,.md" hidden />
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
   </div>
 
   <dialog id="config-dialog">
@@ -515,6 +579,7 @@
         <button type="button" class="cfg-tab active" data-pane="dev">开发</button>
         <button type="button" class="cfg-tab" data-pane="office">办公</button>
         <button type="button" class="cfg-tab" data-pane="health">健康</button>
+        <button type="button" class="cfg-tab" data-pane="ai">AI</button>
         <button type="button" class="cfg-tab" data-pane="system">系统</button>
         <div class="cfg-nav-foot">
           <button value="cancel" class="btn ghost" type="submit">关闭</button>
@@ -636,8 +701,15 @@
             <p class="hint">星期：1=周一 … 5=周五 … 7=周日。未提交提醒偏「开发」，为减少页签仍放在此处。</p>
           </div>
 
+        </section>
+
+        <!-- ========== AI ========== -->
+        <section class="cfg-pane" data-pane="ai">
+          <h3>AI</h3>
+          <p class="hint">对话模型与 skill 目录。token 配置从「健康」挪到这里；skill 可配多个路径。</p>
+
           <div class="cfg-block">
-            <h4>AI 健康建议</h4>
+            <h4>模型 · OpenAI 兼容</h4>
             <div class="ai-card">
               <div class="ai-card-head">
                 <span class="ai-badge">OpenAI 兼容</span>
@@ -661,12 +733,50 @@
               </div>
             </div>
           </div>
+
+          <div class="cfg-block">
+            <h4>Skill 路径</h4>
+            <p class="hint">除 exe 旁默认 <code>skills\</code> 外，可挂多个目录。保存后列表可删。文件名 *.md，frontmatter 含 id/name/triggers。</p>
+            <div class="gig-form" style="margin-bottom:8px">
+              <input id="cfg-skill-path" class="inline-input grow" placeholder="D:\\skills 或 %USERPROFILE%\\work-skills" />
+              <button type="button" id="btn-skill-path-add" class="btn sm primary">添加</button>
+            </div>
+            <div id="skill-path-list" class="skill-path-list"></div>
+          </div>
         </section>
 
         <!-- ========== 系统 ========== -->
         <section class="cfg-pane" data-pane="system">
           <h3>系统</h3>
           <p class="hint">挂件、开机自启、窗口行为、诊断日志。</p>
+
+          <div class="cfg-block">
+            <h4>外观 · 界面风格</h4>
+            <p class="hint">多套配色可切换，保存后立即生效并记住。</p>
+            <div id="ui-theme-grid" class="ui-theme-grid" role="radiogroup" aria-label="界面风格">
+              <button type="button" class="ui-theme-card" data-theme="midnight" title="午夜蓝">
+                <span class="sw sw-midnight"></span><span>午夜</span>
+              </button>
+              <button type="button" class="ui-theme-card" data-theme="cyan" title="青碧">
+                <span class="sw sw-cyan"></span><span>青碧</span>
+              </button>
+              <button type="button" class="ui-theme-card" data-theme="violet" title="紫罗兰">
+                <span class="sw sw-violet"></span><span>紫罗兰</span>
+              </button>
+              <button type="button" class="ui-theme-card" data-theme="amber" title="琥珀">
+                <span class="sw sw-amber"></span><span>琥珀</span>
+              </button>
+              <button type="button" class="ui-theme-card" data-theme="light" title="浅色">
+                <span class="sw sw-light"></span><span>浅色</span>
+              </button>
+              <button type="button" class="ui-theme-card" data-theme="light-blue" title="浅蓝">
+                <span class="sw sw-light-blue"></span><span>浅蓝</span>
+              </button>
+            </div>
+            <div class="ui-theme-row">
+              <label class="check"><input type="checkbox" id="cfg-theme-follow" /> 跟随系统深浅（忽略上方选择）</label>
+            </div>
+          </div>
 
           <div class="cfg-block">
             <h4>桌面与启动</h4>

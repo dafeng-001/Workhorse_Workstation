@@ -466,7 +466,7 @@ function setHtml(ids, html) {
 function setMode(next) {
   mode = next;
   document.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
-  ["overview","code","files","rhythm","work"].forEach((m) => {
+  ["overview","code","files","rhythm","work","ai"].forEach((m) => {
     const el = document.getElementById(`view-${m}`);
     if (el) el.classList.toggle("active", m === mode);
   });
@@ -488,9 +488,9 @@ loadSlack().catch(()=>{});
 document.querySelectorAll(".mode-btn").forEach((btn) => {
   btn.addEventListener("click", () => setMode(btn.dataset.mode));
 });
-document.querySelectorAll(".seg-btn").forEach((btn) => {
+document.querySelectorAll(".seg-btn[data-kind]").forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll(".seg-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".seg-btn[data-kind]").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     typeKind = btn.dataset.kind || "office";
     renderTypes(lastTypes);
@@ -806,25 +806,43 @@ async function loadFocus() {
   } catch {}
 }
 
-function renderHealth(h, prefix) {
-  if (!h) return;
-  const p = prefix || "";
-  const score = $(`h-score${p}`), level = $(`h-level${p}`), src = $(`h-source${p}`), tips = $(`h-tips${p}`);
-  if (score) score.textContent = h.score ?? "—";
-  if (level) level.textContent = h.level || "";
-  if (src) src.textContent = h.source || "";
-  if (tips) tips.innerHTML = (h.tips||[]).map((t)=>`<li>${escapeHtml(t)}</li>`).join("") || "<li>暂无建议</li>";
+function renderBasisChips(el, items) {
+  if (!el) return;
+  const list = (items || []).map(String).filter((s) => s.trim());
+  el.innerHTML = list.map((s) => `<span class="chip${/规则|本地|health|metrics|CALC/i.test(s) ? "" : " ok"}">${escapeHtml(s)}</span>`).join("");
+}
+
+function renderHealthAdvice(r, useLlm) {
+  const tips = r.advice || r.tips || [];
+  const tipHtml = tips.map((x) => `<li>${escapeHtml(String(x))}</li>`).join("") || "<li>暂无建议</li>";
+  const score = $("h-score"), level = $("h-level"), src = $("h-source");
+  if (score) score.textContent = r.score ?? "—";
+  if (level) level.textContent = r.level || "";
+  if (src) src.textContent = r.source || (useLlm ? "AI · 经方作息" : "本地规则");
+  setHtml(["h-tips", "h-tips-2"], tipHtml);
+  setMany(["h-score-2"], r.score ?? "—");
+  setMany(["h-level-2"], r.level || "");
+  setMany(["tcm-meta"], [r.level, r.note || r.source].filter(Boolean).join(" · "));
+  renderBasisChips($("tcm-ask"), r.ask_basis);
+  renderBasisChips($("tcm-ans"), r.answer_basis);
+  setMany(["tcm-disclaimer"], r.disclaimer || "");
 }
 
 async function loadHealth(useLlm, suffix) {
+  const ai = !!useLlm;
   try {
-    const h = await invoke("get_health", { useLlm: !!useLlm });
-    renderHealth(h, suffix||"");
-    renderHealth(h, "");
-    renderHealth(h, "-2");
+    const r = await invoke("get_tcm_advice", { useLlm: ai });
+    renderHealthAdvice(r, ai);
   } catch (e) {
-    const tips = $("h-tips");
-    if (tips) tips.innerHTML = `<li>${escapeHtml(String(e))}</li>`;
+    // AI 未配置时回退本地规则，保证面板始终有内容
+    try {
+      const r = await invoke("get_tcm_advice", { useLlm: false });
+      renderHealthAdvice(r, false);
+      setMany(["tcm-disclaimer"], String(e));
+    } catch (e2) {
+      const tips = $("h-tips");
+      if (tips) tips.innerHTML = `<li>${escapeHtml(String(e2 || e))}</li>`;
+    }
   }
 }
 
@@ -915,6 +933,8 @@ function openConfig(cfg) {
   if ($("cfg-llm-base")) $("cfg-llm-base").value = cfg.llm_api_base || "";
   if ($("cfg-llm-key")) $("cfg-llm-key").value = cfg.llm_api_key || "";
   if ($("cfg-llm-model")) $("cfg-llm-model").value = cfg.llm_model || "gpt-4o-mini";
+  renderSkillPaths(cfg.skill_paths || []);
+  syncThemeUi(cfg.ui_theme || "midnight", !!cfg.theme_follow_system);
   const st = $("ai-status");
   if (st) {
     const on = !!(cfg.llm_api_base||"").trim() && !!(cfg.llm_api_key||"").trim();
@@ -1055,6 +1075,9 @@ async function saveConfigFromForm() {
     weekly_scope_dev: $("cfg-weekly-dev")?.checked !== false,
     weekly_scope_office: $("cfg-weekly-office")?.checked !== false,
     weekly_scope_health: $("cfg-weekly-health")?.checked !== false,
+    skill_paths: collectSkillPaths(),
+    ui_theme: currentUiTheme,
+    theme_follow_system: $("cfg-theme-follow")?.checked === true,
   };
   await invoke("save_config", { config });
   const su = $("cfg-startup");
@@ -1212,15 +1235,17 @@ async function applyWeeklyResult(res, label) {
 }
 
 $("btn-refresh").addEventListener("click", ()=>refresh());
-$("btn-weekly").addEventListener("click", async ()=>{
+$("btn-weekly")?.addEventListener("click", async ()=>{
+  setMode("ai");
   const btn = $("btn-weekly");
-  btn.disabled = true; btn.textContent = "生成中…";
+  if (btn) { btn.disabled = true; btn.textContent = "生成中…"; }
   try {
     const res = await invoke("generate_weekly");
-    setMode("code");
     await applyWeeklyResult(res, "草稿已生成");
+    const details = $("ai-weekly");
+    if (details) details.open = true;
   } catch (e) { alertMsg(String(e)); }
-  finally { btn.disabled = false; btn.textContent = "周报草稿"; }
+  finally { if (btn) { btn.disabled = false; btn.textContent = "周报草稿"; } }
 });
 $("btn-config").addEventListener("click", async ()=>{
   const cfg = await invoke("get_config");
@@ -1612,9 +1637,16 @@ $("range-end")?.addEventListener("change", ()=>{
 });
 // 启动时初始化本周范围
 setOvRange("week");
-$("btn-health")?.addEventListener("click", ()=>loadHealth(false));
-$("btn-health-llm")?.addEventListener("click", ()=>loadHealth(true));
-$("btn-health-llm-2")?.addEventListener("click", ()=>loadHealth(true, "-2"));
+function setHealthSrcActive(useLlm) {
+  document.querySelectorAll(".health-src .seg-btn").forEach((b) => {
+    const isAi = b.dataset.src === "ai";
+    b.classList.toggle("active", isAi === !!useLlm);
+  });
+}
+$("btn-health")?.addEventListener("click", ()=>{ setHealthSrcActive(false); loadHealth(false); });
+$("btn-health-llm")?.addEventListener("click", ()=>{ setHealthSrcActive(true); loadHealth(true); });
+$("btn-health-2")?.addEventListener("click", ()=>{ setHealthSrcActive(false); loadHealth(false); });
+$("btn-health-llm-2")?.addEventListener("click", ()=>{ setHealthSrcActive(true); loadHealth(true); });
 $("cfg-widget")?.addEventListener("change", async (e)=>{
   try { await invoke("set_widget_visible", { visible: e.target.checked }); } catch {}
 });
@@ -1731,3 +1763,594 @@ setInterval(() => {
   loadFocus();
 }, 20000);
 setInterval(() => refresh(), 45000);
+
+
+/* ========== AI 沟通页：预设动作 → 统一对话流 ========== */
+const AI_SKILLS = ["规则引擎 health-v2", "倪海厦经方作息", "李可疲劳调养", "CALC.md 周报口径"];
+
+function aiStream() { return $("ai-stream"); }
+
+function aiBubble(role, bodyHtml, opts = {}) {
+  const stream = aiStream();
+  if (!stream) return null;
+  const empty = $("ai-empty");
+  if (empty) empty.hidden = true;
+  const el = document.createElement("div");
+  el.className = `ai-bubble ${role}${opts.pending ? " pending" : ""}`;
+  const meta = (opts.meta || []).filter(Boolean);
+  const note = opts.note ? `<div class="ai-note">${escapeHtml(String(opts.note))}</div>` : "";
+  const chips = meta.length
+    ? `<div class="ai-meta">${meta.map((m) => `<span class="chip ok">${escapeHtml(String(m))}</span>`).join("")}</div>`
+    : "";
+  el.innerHTML = `<div class="ai-role">${role === "user" ? "你" : "工作台"}</div><div class="ai-body">${bodyHtml}</div>${chips}${note}`;
+  stream.appendChild(el);
+  stream.scrollTop = stream.scrollHeight;
+  return el;
+}
+
+function aiList(items) {
+  const arr = (items || []).map(String).filter(Boolean);
+  if (!arr.length) return "<div>暂无</div>";
+  return `<ul>${arr.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>`;
+}
+
+function aiWeekTitle() {
+  return `本周 · ${weeklyScopeLabel()}`;
+}
+
+async function aiRun(action, btn) {
+  const labels = {
+    "weekly-draft": "生成周报草稿",
+    "weekly-polish": "润色周报",
+    "health-local": "健康建议（本地规则）",
+    "health-ai": "健康建议（AI · 经方作息）",
+    "todos": "查看本周待办",
+  };
+  const label = labels[action] || action;
+  aiBubble("user", escapeHtml(label));
+  const pending = aiBubble("assistant", `<span class="hint">处理中…</span>`, { pending: true });
+  if (btn) { btn.disabled = true; }
+  try {
+    if (action === "weekly-draft" || action === "weekly-polish") {
+      const res = await invoke(action === "weekly-draft" ? "generate_weekly" : "polish_weekly");
+      await applyWeeklyResult(res, action === "weekly-draft" ? "草稿已生成" : "已润色");
+      { const d = $("ai-weekly"); if (d) d.open = true; }
+      const content = res.content || "";
+      const path = res.path || res.status?.path || "";
+      if (pending) pending.remove();
+      aiBubble("assistant",
+        `<div>${escapeHtml(action === "weekly-draft" ? "周报草稿已生成" : "周报已润色")}</div><pre>${escapeHtml(content)}</pre>`,
+        {
+          meta: [path.split(/[\\/]/).pop(), aiWeekTitle()].filter(Boolean),
+          note: "已写入下方「周报输出」抽屉，可历史/复制/导出。",
+        });
+    } else if (action === "health-local" || action === "health-ai") {
+      const useLlm = action === "health-ai";
+      let r;
+      try {
+        r = await invoke("get_tcm_advice", { useLlm });
+      } catch (e) {
+        if (useLlm) {
+          r = await invoke("get_tcm_advice", { useLlm: false });
+          if (pending) pending.remove();
+          aiBubble("assistant", `<div>AI 未配置或调用失败，已回退本地规则。</div>${aiList(r.advice || r.tips)}`, {
+            meta: [r.level, r.source, ...(r.answer_basis || [])].filter(Boolean),
+            note: r.disclaimer || String(e),
+          });
+          return;
+        }
+        throw e;
+      }
+      if (pending) pending.remove();
+      const tips = r.advice || r.tips || [];
+      aiBubble("assistant",
+        `<div>${escapeHtml([r.level, r.note || r.source].filter(Boolean).join(" · "))}</div>${aiList(tips)}`,
+        {
+          meta: [...(r.ask_basis || []).slice(0, 2), ...(r.answer_basis || [])].filter(Boolean),
+          note: r.disclaimer || "",
+        });
+      // 同步总览健康卡片
+      try { renderHealthAdvice(r, useLlm); } catch {}
+    } else if (action === "todos") {
+      const list = await invoke("get_todos", { scope: todoScope() });
+      const items = (list || []).map((t) => `${t.done ? "[x]" : "[ ]"} ${t.title || t.name || JSON.stringify(t)}`);
+      if (pending) pending.remove();
+      aiBubble("assistant",
+        `<div>${escapeHtml(`本周待办 ${items.filter((s) => s.startsWith("[ ]")).length} 项未完成`)}</div>${aiList(items)}`,
+        {
+          meta: ["get_todos", todoScope() || "default"],
+          note: "在总览「本周待办」可直接勾选/添加。",
+        });
+    } else {
+      if (pending) pending.remove();
+      aiBubble("assistant", "未知动作");
+    }
+  } catch (e) {
+    if (pending) pending.remove();
+    aiBubble("assistant", escapeHtml(String(e)), { note: "执行失败" });
+  } finally {
+    if (btn) { btn.disabled = false; }
+  }
+}
+
+$("ai-stream")?.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  if (!["weekly-draft","weekly-polish","health-local","health-ai","todos"].includes(btn.dataset.act)) return;
+  aiRun(btn.dataset.act, btn).catch(() => {});
+});
+$("btn-ai-clear")?.addEventListener("click", () => {
+  const stream = aiStream();
+  if (stream) {
+    stream.innerHTML = `
+      <div class="ai-empty" id="ai-empty">
+        <div class="ai-empty-title">今天想处理什么？</div>
+        <div class="ai-empty-sub">聊天在下，结果出在对话里。可用 / 调用技能。</div>
+        <div class="ai-actions-bar" id="ai-actions">
+          <button type="button" class="btn sm" data-act="weekly-draft">周报草稿</button>
+          <button type="button" class="btn sm" data-act="weekly-polish">周报润色</button>
+          <button type="button" class="btn sm" data-act="health-local">健康 · 本地</button>
+          <button type="button" class="btn sm" data-act="health-ai">健康 · AI</button>
+          <button type="button" class="btn sm" data-act="todos">本周待办</button>
+        </div>
+      </div>`;
+  }
+});
+
+
+/* ========== AI 输入：/ 指令 + 触发词路由 ========== */
+const AI_SLASH = [
+  { cmd: "/健康", id: "health-lifestyle", desc: "结合本地/历史健康数据给建议" },
+  { cmd: "/待办", id: "todo-tomorrow", desc: "拆成待办并确认后写入" },
+  { cmd: "/周报", id: "weekly-note", desc: "生成/润色周报草稿" },
+  { cmd: "/计划", id: "todo-tomorrow", desc: "明日计划 → 待办" },
+];
+
+function aiSetSlashMenu(items) {
+  const menu = $("ai-slash-menu");
+  if (!menu) return;
+  if (!items || !items.length) {
+    menu.hidden = true;
+    menu.innerHTML = "";
+    return;
+  }
+  menu.innerHTML = items
+    .map(
+      (it, idx) =>
+        `<div class="ai-slash-item${idx === 0 ? " active" : ""}" data-cmd="${escapeHtml(it.cmd)}" data-id="${escapeHtml(it.id || "")}">
+          <span class="cmd">${escapeHtml(it.cmd)}</span>
+          <span class="desc">${escapeHtml(it.desc || "")}</span>
+        </div>`
+    )
+    .join("");
+  menu.hidden = false;
+}
+
+function aiFilterSlash(q) {
+  const key = (q || "").replace(/^\//, "").trim().toLowerCase();
+  return AI_SLASH.filter(
+    (it) =>
+      !key ||
+      it.cmd.toLowerCase().includes(key) ||
+      it.id.includes(key) ||
+      (it.desc && it.desc.includes(key))
+  ).slice(0, 8);
+}
+
+function aiParseItems(text) {
+  return String(text || "")
+    .split(/[\n\r]+|[、，,;；]+|(?<=\S)\s{2,}/)
+    .map((s) => s.trim().replace(/^[-*•]\s*/, ""))
+    .filter((s) => s.length >= 2);
+}
+
+function aiConfirmTodos(items, note) {
+  const stream = aiStream();
+  if (!stream) return;
+  const empty = $("ai-empty");
+  if (empty) empty.hidden = true;
+  const wrap = document.createElement("div");
+  wrap.className = "ai-bubble assistant";
+  const listId = `ai-todo-${Date.now()}`;
+  wrap.innerHTML = `
+    <div class="ai-role">工作台</div>
+    <div class="ai-body">已整理 ${items.length} 条方向，请确认后写入「本周待办」。</div>
+    <div class="ai-confirm" id="${listId}">
+      ${items
+        .map(
+          (t, i) =>
+            `<label><input type="checkbox" checked data-idx="${i}" /> <span>${escapeHtml(t)}</span></label>`
+        )
+        .join("")}
+      <div class="row">
+        <button type="button" class="btn sm primary" data-act="ai-todo-save">写入待办</button>
+        <button type="button" class="btn sm ghost" data-act="ai-todo-cancel">取消</button>
+      </div>
+    </div>
+    ${note ? `<div class="ai-note">${escapeHtml(note)}</div>` : ""}`;
+  wrap.addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    const box = wrap.querySelector(`#${listId}`);
+    if (btn.dataset.act === "ai-todo-cancel") {
+      wrap.remove();
+      return;
+    }
+    if (btn.dataset.act === "ai-todo-save") {
+      const checked = [...(box?.querySelectorAll('input[type="checkbox"]:checked') || [])];
+      const titles = checked
+        .map((c) => c.parentElement?.querySelector("span")?.textContent?.trim())
+        .filter(Boolean);
+      if (!titles.length) {
+        alertMsg("未勾选任何待办");
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "写入中…";
+      try {
+        for (const title of titles) {
+          await invoke("add_todo", { title, scope: todoScope(), repo: null });
+        }
+        try {
+          renderTodos(await invoke("get_todos", { scope: todoScope() }));
+        } catch {}
+        aiBubble("assistant", `<div>已写入 ${titles.length} 条到「本周待办」。</div>${aiList(titles)}`, {
+          meta: ["add_todo", todoScope() || "default"],
+          note: "可到总览勾选完成；未完成项会进托盘提醒。",
+        });
+        wrap.remove();
+      } catch (err) {
+        alertMsg(String(err));
+        btn.disabled = false;
+        btn.textContent = "写入待办";
+      }
+    }
+  });
+  stream.appendChild(wrap);
+  stream.scrollTop = stream.scrollHeight;
+}
+
+async function aiHandleInput(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return;
+  aiBubble("user", escapeHtml(text));
+  const pending = aiBubble("assistant", `<span class="hint">处理中…</span>`, { pending: true });
+
+  // /周报
+  if (/^\/(周报|weekly)/i.test(text)) {
+    try {
+      const arg = text.replace(/^\/\S+\s*/i, "");
+      const doPolish = /润色/.test(arg);
+      const res = await invoke(doPolish ? "polish_weekly" : "generate_weekly");
+      await applyWeeklyResult(res, doPolish ? "已润色" : "草稿已生成");
+      if (pending) pending.remove();
+      aiBubble(
+        "assistant",
+        `<div>${escapeHtml(doPolish ? "周报已润色" : "周报草稿已生成")}</div><pre>${escapeHtml(res.content || "")}</pre>`,
+        {
+          meta: [(res.path || "").split(/[\\/]/).pop(), "CALC.md 周报口径"].filter(Boolean),
+          note: "已同步到总览「周报」。",
+        }
+      );
+    } catch (e) {
+      if (pending) pending.remove();
+      aiBubble("assistant", escapeHtml(String(e)));
+    }
+    return;
+  }
+
+  // /待办 xxx 或 明天/计划 + 描述
+  const todoMatch =
+    text.match(/^\/(待办|todo|计划)\s+([\s\S]+)$/i) ||
+    text.match(/^(明天|记一下|待办)[：: ]\s*([\s\S]+)$/i);
+  if (todoMatch) {
+    const arg = todoMatch[2] || "";
+    let items = aiParseItems(arg);
+    // 优先用 LLM skill 拆条
+    try {
+      const r = await invoke("ask_skill", {
+        skillId: "todo-tomorrow",
+        userText: arg,
+        useLlm: true,
+      });
+      const advice = r.advice || [];
+      const parsed = advice.filter((x) => x && x.length >= 2 && !/^已记录/.test(x));
+      if (parsed.length) items = parsed;
+    } catch {}
+    if (!items.length) items = aiParseItems(arg);
+    if (!items.length) items = [arg].filter((s) => s.length >= 2);
+    if (pending) pending.remove();
+    aiConfirmTodos(items, "确认后才会写入；可取消勾选。");
+    return;
+  }
+
+  // skill / 触发词 / /健康
+  let skillId = null;
+  if (/^\/(健康|health|肩颈|腰|疲劳)/i.test(text)) skillId = "health-lifestyle";
+  else if (/^\/(周报|weekly)/i.test(text)) skillId = "weekly-note";
+  else if (/健康|肩颈|脖子|腰|疲劳|累|不舒服|作息|久坐/.test(text)) skillId = "health-lifestyle";
+
+  if (skillId) {
+    try {
+      const r = await invoke("ask_skill", {
+        skillId,
+        userText: text.replace(/^\/\S+\s*/, ""),
+        useLlm: true,
+      });
+      if (pending) pending.remove();
+      aiBubble(
+        "assistant",
+        `<div>${escapeHtml([r.skill_name, r.source].filter(Boolean).join(" · "))}</div>${aiList(r.advice || [])}`,
+        {
+          meta: [...(r.ask_basis || []).slice(0, 2), ...(r.answer_basis || [])].filter(Boolean),
+          note: r.note || r.disclaimer || "",
+        }
+      );
+      try {
+        if (skillId === "health-lifestyle") renderHealthAdvice(r, true);
+      } catch {}
+      return;
+    } catch (e) {
+      if (pending) pending.remove();
+      aiBubble("assistant", escapeHtml(String(e)), { note: "skill 调用失败" });
+      return;
+    }
+  }
+
+  // 默认：当健康诉求走本地 skill
+  try {
+    const r = await invoke("ask_skill", {
+      skillId: "health-lifestyle",
+      userText: text,
+      useLlm: true,
+    });
+    if (pending) pending.remove();
+    aiBubble(
+      "assistant",
+      `<div>${escapeHtml([r.skill_name, r.source].filter(Boolean).join(" · "))}</div>${aiList(r.advice || [])}`,
+      {
+        meta: (r.answer_basis || []).filter(Boolean),
+        note: r.note || "",
+      }
+    );
+  } catch (e) {
+    if (pending) pending.remove();
+    aiBubble("assistant", escapeHtml(String(e)));
+  }
+}
+
+function aiSendCurrent() {
+  const input = $("ai-input");
+  if (!input) return;
+  const val = input.value;
+  input.value = "";
+  aiSetSlashMenu(null);
+  aiHandleInput(val).catch(() => {});
+}
+
+$("btn-ai-send")?.addEventListener("click", aiSendCurrent);
+$("ai-input")?.addEventListener("keydown", (e) => {
+  const menu = $("ai-slash-menu");
+  if (e.key === "Enter") {
+    e.preventDefault();
+    aiSendCurrent();
+    return;
+  }
+  if (e.key === "Escape") {
+    aiSetSlashMenu(null);
+    return;
+  }
+  if (menu && !menu.hidden && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    e.preventDefault();
+    const items = [...menu.querySelectorAll(".ai-slash-item")];
+    if (!items.length) return;
+    let idx = items.findIndex((x) => x.classList.contains("active"));
+    idx = e.key === "ArrowDown" ? (idx + 1) % items.length : (idx - 1 + items.length) % items.length;
+    items.forEach((x, i) => x.classList.toggle("active", i === idx));
+    return;
+  }
+});
+$("ai-input")?.addEventListener("input", (e) => {
+  const v = e.target.value;
+  if (v.startsWith("/")) aiSetSlashMenu(aiFilterSlash(v));
+  else aiSetSlashMenu(null);
+});
+$("ai-slash-menu")?.addEventListener("click", (e) => {
+  const item = e.target.closest(".ai-slash-item");
+  if (!item) return;
+  const input = $("ai-input");
+  if (input) {
+    input.value = item.dataset.cmd + " ";
+    input.focus();
+  }
+  aiSetSlashMenu(null);
+});
+
+// 启动时拉 skill 清单，刷新小字 chips
+(async () => {
+  try {
+    const list = await invoke("list_skills");
+    const bar = $("ai-skills");
+    if (bar && Array.isArray(list) && list.length) {
+      bar.innerHTML = list
+        .map((s) => `<span class="skill-chip" title="${escapeHtml(s.source || "")}">${escapeHtml(s.name)}</span>`)
+        .join("");
+    }
+  } catch {}
+})();
+
+
+/* ---- skill 路径列表 ---- */
+let skillPaths = [];
+function renderSkillPaths(list) {
+  skillPaths = Array.isArray(list) ? list.map(String).filter(Boolean) : [];
+  const box = $("skill-path-list");
+  if (!box) return;
+  if (!skillPaths.length) {
+    box.innerHTML = `<div class="skill-path-empty">未添加额外 skill 路径；默认读取 exe 旁 skills\</div>`;
+    return;
+  }
+  box.innerHTML = skillPaths
+    .map(
+      (p, i) => `<div class="skill-path-item" data-idx="${i}">
+        <span class="path" title="${escapeHtml(p)}">${escapeHtml(p)}</span>
+        <button type="button" class="del" data-act="skill-path-del" title="删除">×</button>
+      </div>`
+    )
+    .join("");
+}
+function collectSkillPaths() {
+  return skillPaths.slice();
+}
+$("btn-skill-path-add")?.addEventListener("click", () => {
+  const el = $("cfg-skill-path");
+  const v = (el?.value || "").trim();
+  if (!v) return;
+  if (skillPaths.includes(v)) {
+    alertMsg("路径已存在");
+    return;
+  }
+  skillPaths.push(v);
+  renderSkillPaths(skillPaths);
+  if (el) el.value = "";
+});
+$("skill-path-list")?.addEventListener("click", (e) => {
+  const btn = e.target.closest('[data-act="skill-path-del"]');
+  if (!btn) return;
+  const row = btn.closest(".skill-path-item");
+  const idx = Number(row?.dataset.idx ?? -1);
+  if (idx < 0) return;
+  skillPaths.splice(idx, 1);
+  renderSkillPaths(skillPaths);
+});
+
+/* ---- AI 底栏：上传健康数据 / 模型 chip ---- */
+function refreshAiModelChip() {
+  invoke("get_config")
+    .then((cfg) => {
+      const el = $("btn-ai-model");
+      if (!el) return;
+      const model = (cfg?.llm_model || "").trim();
+      const on = !!(cfg?.llm_api_base || "").trim() && !!(cfg?.llm_api_key || "").trim();
+      el.textContent = on ? (model || "AI") : "本地";
+      el.title = on ? `模型：${model || "AI"}` : "未配置 AI，走本地规则";
+    })
+    .catch(() => {});
+}
+
+$("btn-ai-upload")?.addEventListener("click", () => $("ai-health-file")?.click());
+$("ai-health-file")?.addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    const text = await file.text();
+    aiBubble("user", `上传健康数据：<strong>${escapeHtml(file.name)}</strong>`);
+    const pending = aiBubble("assistant", `<span class="hint">导入中…</span>`, { pending: true });
+    const res = await invoke("import_health_data", {
+      content: text,
+      filename: file.name,
+    });
+    if (pending) pending.remove();
+    aiBubble("assistant", escapeHtml(res?.summary || "已导入"), {
+      meta: [file.name, res?.path || ""],
+      note: "已写入 data/health_import.json，之后 /健康 会带上这份数据。",
+    });
+  } catch (err) {
+    alertMsg(String(err));
+  }
+});
+$("btn-ai-access")?.addEventListener("click", () => {
+  const input = $("ai-input");
+  if (!input) return;
+  input.focus();
+  if (!input.value.startsWith("/")) {
+    input.value = "/";
+    input.dispatchEvent(new Event("input"));
+  }
+});
+$("btn-ai-model")?.addEventListener("click", () => {
+  const cfgBtn = $("btn-config");
+  if (cfgBtn) cfgBtn.click();
+});
+refreshAiModelChip();
+
+
+/* ========== UI 主题 ========== */
+const UI_THEMES = ["midnight", "cyan", "violet", "amber", "light", "light-blue"];
+let currentUiTheme = "midnight";
+let themeFollowSystem = false;
+
+function applyUiTheme(theme) {
+  const id = UI_THEMES.includes(theme) ? theme : "midnight";
+  currentUiTheme = id;
+  document.documentElement.setAttribute("data-theme", id);
+  document.querySelectorAll(".ui-theme-card").forEach((b) => {
+    b.classList.toggle("active", b.dataset.theme === id);
+    b.setAttribute("aria-checked", b.dataset.theme === id ? "true" : "false");
+  });
+  try { localStorage.setItem("ui_theme", id); } catch {}
+}
+
+function themeFromSystem() {
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "midnight";
+}
+
+function syncThemeUi(theme, follow) {
+  themeFollowSystem = !!follow;
+  if ($("cfg-theme-follow")) $("cfg-theme-follow").checked = themeFollowSystem;
+  if (!themeFollowSystem && theme) applyUiTheme(theme);
+  else if (themeFollowSystem) document.documentElement.setAttribute("data-theme", themeFromSystem());
+}
+
+function persistThemeSoon() {
+  invoke("get_config")
+    .then(async (prev) => {
+      const config = {
+        ...(prev || {}),
+        ui_theme: currentUiTheme,
+        theme_follow_system: themeFollowSystem,
+      };
+      await invoke("save_config", { config });
+    })
+    .catch(() => {});
+}
+
+$("ui-theme-grid")?.addEventListener("click", (e) => {
+  const card = e.target.closest(".ui-theme-card");
+  if (!card) return;
+  themeFollowSystem = false;
+  if ($("cfg-theme-follow")) $("cfg-theme-follow").checked = false;
+  applyUiTheme(card.dataset.theme || "midnight");
+  persistThemeSoon();
+});
+$("cfg-theme-follow")?.addEventListener("change", (e) => {
+  themeFollowSystem = !!e.target.checked;
+  if (themeFollowSystem) {
+    document.documentElement.setAttribute("data-theme", themeFromSystem());
+  } else {
+    applyUiTheme(currentUiTheme);
+  }
+  persistThemeSoon();
+});
+window.matchMedia?.("(prefers-color-scheme: light)")?.addEventListener?.("change", () => {
+  if (themeFollowSystem) document.documentElement.setAttribute("data-theme", themeFromSystem());
+});
+
+(function bootTheme() {
+  try {
+    const saved = localStorage.getItem("ui_theme");
+    if (saved) applyUiTheme(saved);
+  } catch {}
+  invoke("get_config")
+    .then((cfg) => {
+      themeFollowSystem = !!cfg?.theme_follow_system;
+      if (cfg?.ui_theme) currentUiTheme = cfg.ui_theme;
+      if (themeFollowSystem) {
+        document.documentElement.setAttribute("data-theme", themeFromSystem());
+      } else {
+        applyUiTheme(currentUiTheme);
+      }
+    })
+    .catch(() => {});
+})();
